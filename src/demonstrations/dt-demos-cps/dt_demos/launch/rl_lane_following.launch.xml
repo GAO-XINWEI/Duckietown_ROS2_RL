@@ -1,0 +1,36 @@
+<?xml version='1.0'?>
+<launch>
+    <arg name="demo_name" default="rl_lane_following"/>
+    <arg name="rl_control" default="false"
+        description="Use Reinforcement Learning control."/>
+
+    <include file="$(find-pkg-share dt_demos)/common.launch.xml">
+        <arg name="demo_name" value="$(var demo_name)"/>
+
+        <!-- Hardware drivers -->
+        <arg name="use_battery_health" value="false"/>
+        <arg name="use_hardware_stats" value="false"/>
+        <arg name="use_wheel_drivers" value="true"/>
+        <arg name="use_wheel_encoders" value="false"/>
+        <arg name="use_camera" value="true"/>
+        <arg name="use_button" value="false"/>
+        <arg name="use_oled_display" value="false"/>
+        <arg name="use_imu" value="false"/>
+        <arg name="use_tof" value="false"/>
+        <arg name="use_leds" value="false"/>
+
+        <!-- Car interface -->
+        <arg name="use_kinematics_node" value="true"/>
+        <arg name="use_velocity_to_pose_node" value="false"/>
+        <arg name="use_cmd_switch_node" value="false"/>
+        <arg name="use_joy_mapper_node" value="false"/>
+        <arg name="default_passthrough" value="false"/>
+
+        <!-- Camera and anti instagram -->
+        <arg name="anti_instagram" value="true"/>
+
+        <!-- Reinforcement Learning Control -->
+        <arg name="rl_control" value="$(var rl_control)"/>
+        
+    </include>
+</launch>

@@ -1,0 +1,7 @@
+# OOD module Parameters
+#
+# model: 2 types - bi3dof_nuscenes.pt or bi3dof_synthia.pt
+model: checkpoint.pkl
+
+#torch_device: cpu or tpu
+torch_device: cpu
