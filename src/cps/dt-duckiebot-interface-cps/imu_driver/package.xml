@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>imu_driver</name>
+  <version>1.0.0</version>
+  <description>Interface for reading sensors on DBV2 and publishing ROS topics</description>
+  <maintainer email="scottti@student.ethz.ch">Timothy Scott</maintainer>
+  <license>GPLv3</license>
+
+  <depend>rclpy</depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <exec_depend>dt_interfaces_cps</exec_depend>
+  <exec_depend>dt_calibration_utils</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

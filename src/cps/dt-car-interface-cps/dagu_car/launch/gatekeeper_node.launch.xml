@@ -1,0 +1,12 @@
+<?xml version='1.0'?>
+<launch>
+    <arg name="veh"/>
+    <!-- Default state during start up. If `True`, then messages are passed
+        through by default. -->
+    <arg name="default_passthrough" default="false"/>
+
+    <node pkg="dagu_car" exec="gatekeeper_node" name="gatekeeper_node"
+        namespace="$(var veh)">
+        <param name="default_passthrough" value="$(var default_passthrough)"/>
+    </node>
+</launch>

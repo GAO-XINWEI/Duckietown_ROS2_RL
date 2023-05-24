@@ -1,0 +1,16 @@
+<?xml version='1.0'?>
+<launch>
+    <arg name="veh"/>
+    <arg name="bus" default="1"/>
+    <arg name="address" default="0x3C"/>
+    <arg name="refresh_frequency" default="1.0"/>
+
+    <node pkg="display_driver" exec="display_driver_node"
+        name="display_driver_node" namespace="$(var veh)">
+        <param name="veh" value="$(var veh)"/>
+        <param name="bus" value="$(var bus)"/>
+        <param name="address" value="$(var address)"/>
+        <param name="refresh_frequency" value="$(var refresh_frequency)"/>
+    </node>
+
+</launch>

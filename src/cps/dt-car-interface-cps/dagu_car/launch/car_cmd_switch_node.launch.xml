@@ -1,0 +1,14 @@
+<?xml version='1.0'?>
+<launch>
+    <arg name="veh"/>
+    <arg name="param_file_name" default="car_cmd_switch_default"/>
+    <arg name="default_src_name" default="joystick"/>
+
+    <node pkg="dagu_car" exec="car_cmd_switch_node" name="car_cmd_switch_node"
+        namespace="$(var veh)">
+        <param name="param_file_path" 
+            value="$(find-pkg-share dagu_car)/config/$(var param_file_name).yaml"/>
+        <param name="default_src_name" value="$(var default_src_name)" />
+    </node>
+
+</launch>

@@ -1,0 +1,10 @@
+<?xml version='1.0'?>
+<launch>
+    <arg name="veh"/>
+
+    <node pkg="dagu_car" exec="kinematics_node" name="kinematics_node"
+        namespace="$(var veh)">
+        <param name="veh" value="$(var veh)"/>
+    </node>
+
+</launch>

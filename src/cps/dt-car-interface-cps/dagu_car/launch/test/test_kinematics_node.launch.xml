@@ -1,0 +1,15 @@
+<?xml version='1.0'?>
+<launch>
+    <arg name="veh"/>
+
+    <include file="$(find-pkg-share dagu_car)/launch/kinematics_node.launch.xml">
+        <arg name="veh" value="$(var veh)"/>
+    </include>
+
+    <node pkg="dagu_car" exec="test_kinematics_node" name="test_kinematics_node"
+        namespace="$(var veh)">
+        <remap from="/$(var veh)/car_cmd"
+            to="/$(var veh)/kinematics_node/car_cmd"/>
+    </node>
+
+</launch>

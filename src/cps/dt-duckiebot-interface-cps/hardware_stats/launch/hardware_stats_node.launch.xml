@@ -1,0 +1,10 @@
+<?xml version='1.0'?>
+<launch>
+    <arg name="veh"/>
+    <arg name="publish_period" default="2.0"/>
+
+    <node pkg="hardware_stats" exec="hardware_stats_node"
+        name="hardware_stats_node" namespace="$(var veh)">
+        <param name="publish_period" value="$(var publish_period)"/>
+    </node>
+</launch>

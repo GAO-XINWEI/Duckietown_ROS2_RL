@@ -1,0 +1,74 @@
+<?xml version='1.0'?>
+
+<!-- Launch all the relevant nodes in the `dt-car-interface-cps` repository.
+    The most basic node to run is the `kinematics_node`, which turns car cmds
+    into wheels commands that the duckiebot can actually execute.
+ -->
+<launch>
+    <arg name="veh"/>
+    <arg name="joy_mapper_file_name" default="default"/>
+
+    <arg name="use_kinematics_node" default="false"/>
+    <arg name="use_velocity_to_pose_node" default="false"/>
+    <arg name="use_cmd_switch_node" default="false"/>
+    <arg name="use_joy_mapper_node" default="false"/>
+
+    <arg name="default_passthrough" default="false"/>
+
+    <!-- Kinematics: turns chassis-level commands into wheels-level commands
+        and chassis-level velocities -->
+    <group if="$(eval '\'$(var use_kinematics_node)\'')">
+        <node pkg="dagu_car" exec="kinematics_node" name="kinematics_node"
+            namespace="$(var veh)">
+            <param name="veh" value="$(var veh)"/>
+            <!-- Change publish topic of `wheels_cmd` to `wheels_driver_node` subscriber -->
+            <remap from="~/wheels_cmd" to="/$(var veh)/wheels_driver_node/wheels_cmd"/>
+        </node>
+    </group>
+
+    <!-- Velocity To Pose (Odometry): turns chassis-level velocities into chassis pose -->
+    <group if="$(eval '\'$(var use_velocity_to_pose_node)\'')">
+        <node pkg="dagu_car" exec="velocity_to_pose_node"
+            name="velocity_to_pose_node" namespace="$(var veh)">
+            <param name="veh" value="$(var veh)"/>
+            <!-- Change subscription of `velocity` topic to `kinematics_node` source -->
+            <remap from="~/velocity" to="/$(var veh)/kinematics_node/velocity"/>
+        </node>
+    </group>
+
+    <!-- Joy Mapper: reads raw joy commands and trigger actions in Duckietown -->
+    <group if="$(eval '\'$(var use_joy_mapper_node)\'')">
+        <node pkg="joy_mapper" exec="joy_mapper_node" name="joy_mapper_node"
+            namespace="$(var veh)">
+            <param from="$(find-pkg-share joy_mapper)/config/$(var joy_mapper_file_name).yaml"/>
+            <remap from="~/car_cmd" to="/$(var veh)/kinematics_node/car_cmd"/>
+        </node>
+    </group>
+
+    <!-- Car Command Switch: switches between different sources of car_cmds
+        depending on the current mode of the robot -->
+    <group if="$(eval '\'$(var use_cmd_switch_node)\'')">
+        <include file="$(find-pkg-share dagu_car)/launch/car_cmd_switch_node.launch.xml">
+            <arg name="veh" value="$(var veh)"/>
+        </include>
+
+        <set_remap from="/$(var veh)/gatekeeper_node/out_car_cmd"
+            to="/$(var veh)/kinematics_node/car_cmd"/>
+        <set_remap from="/$(var veh)/gatekeeper_node/in_car_cmd"
+            to="/$(var veh)/car_cmd_switch_node/cmd"/>
+        <include file="$(find-pkg-share dagu_car)/launch/gatekeeper_node.launch.xml">
+            <arg name="veh" value="$(var veh)"/>
+            <arg name="default_passthrough" value="$(var default_passthrough)"/>
+        </include>
+    </group>
+
+    <group unless="$(eval '\'$(var use_cmd_switch_node)\'')">
+        <set_remap from="/$(var veh)/gatekeeper_node/out_car_cmd"
+            to="/$(var veh)/kinematics_node/car_cmd"/>
+        <include file="$(find-pkg-share dagu_car)/launch/gatekeeper_node.launch.xml">
+            <arg name="veh" value="$(var veh)"/>
+            <arg name="default_passthrough" value="$(var default_passthrough)"/>
+        </include>
+    </group>
+
+</launch>

@@ -1,0 +1,9 @@
+<?xml version='1.0'?>
+<launch>
+    <arg name="node_name" default="wheels_driver_node"/>
+    <arg name="veh"/>
+
+    <node pkg="wheels_driver" exec="wheels_driver" name="$(var node_name)"
+        namespace="$(var veh)"/>
+
+</launch>

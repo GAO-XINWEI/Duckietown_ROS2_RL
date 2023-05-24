@@ -1,0 +1,3 @@
+geometry_msgs/Point location
+ObstacleType type
+float32 distance

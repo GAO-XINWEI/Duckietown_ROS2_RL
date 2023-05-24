@@ -1,0 +1,12 @@
+builtin_interfaces/Time time
+bool present
+bool charging
+float32 temperature
+float32 cell_voltage
+float32 input_voltage
+float32 current
+uint16 cycle_count
+uint8 percentage
+uint64 time_to_empty
+float32 usb_out_1_voltage
+float32 usb_out_2_voltage

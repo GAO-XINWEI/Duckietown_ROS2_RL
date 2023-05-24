@@ -1,0 +1,12 @@
+<?xml version='1.0'?>
+<launch>
+    <arg name="veh"/>
+
+    <include file="$(find-pkg-share dagu_car)/launch/velocity_to_pose_node.launch.xml">
+        <arg name="veh" value="$(var veh)"/>
+    </include>
+
+    <node pkg="dagu_car" exec="test_vtp_node" name="test_vtp_node"
+        namespace="$(var veh)">
+    </node>
+</launch>

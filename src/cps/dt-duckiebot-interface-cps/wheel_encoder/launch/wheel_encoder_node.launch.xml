@@ -1,0 +1,15 @@
+<?xml version='1.0'?>
+<launch>
+    <arg name="node_name" default="wheel_encoder_node"/>
+    <arg name="veh"/>
+    <arg name="wheel"/>
+    <arg name="param_file_name"/>
+
+    <node pkg="wheel_encoder" exec="wheel_encoder"
+        name="$(var wheel)_$(var node_name)" namespace="$(var veh)">
+        <param name="veh" value="$(var veh)"/>
+        <param name="name" value="$(var wheel)"/>
+        <param name="param_file_path" value="$(find-pkg-share wheel_encoder)/config/$(var param_file_name)"/>
+    </node>
+
+</launch>

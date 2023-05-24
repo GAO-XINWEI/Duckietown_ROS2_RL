@@ -1,0 +1,93 @@
+<?xml version='1.0'?>
+<launch>
+	<arg name="veh" default="$(env ROBOT_NAME)"
+        description="Unique name of the robot. Used as the namespace."/>
+    <arg name="robot_type" default="$(env ROBOT_TYPE)"
+         description="The type of the robot (e.g., duckiebot, watchtower, traffic_light, ...)"/>
+    <arg name="robot_hardware" default="$(env ROBOT_HARDWARE)"
+        description="The hardware of the robot (e.g., Raspberry Pi, Jetson Nano, ..."/>
+    <arg name="robot_configuration" default="$(env ROBOT_CONFIGURATION)"
+         description="The configuration of the robot (e.g., DB19, DB20, WT18, ...)"/>
+
+    <arg name="use_battery_health" default="false"/>
+    <arg name="use_hardware_stats" default="false"/>
+    <arg name="use_wheel_drivers" default="false"/>
+    <arg name="use_wheel_encoders" default="false"/>
+    <arg name="use_camera" default="false"/>
+    <arg name="use_button" default="false"/>
+    <arg name="use_oled_display" default="false"/>
+    <arg name="use_imu" default="false"/>
+    <arg name="use_tof" default="false"/>
+    <arg name="use_leds" default="false"/>
+
+    <!-- Battery Drivers: read stats from the battery -->
+    <group if="$(eval '\'$(var robot_type)\' in [\'duckiebot\'] and \'$(var use_battery_health)\'')">
+        <include file="$(find-pkg-share battery_drivers)/launch/battery_node.launch.xml">
+            <arg name="veh" value="$(var veh)"/>
+        </include>
+    </group>
+
+    <group if="$(eval '\'$(var robot_hardware)\' in [\'jetson_nano\'] and \'$(var use_hardware_stats)\'')">
+        <include file="$(find-pkg-share hardware_stats)/launch/hardware_stats_node.launch.xml">
+            <arg name="veh" value="$(var veh)"/>
+        </include>
+    </group>
+
+    <!-- Wheel Drivers: reads ROS messages and spins the motors -->
+    <group if="$(eval '\'$(var robot_type)\' == \'duckiebot\' and \'$(var use_wheel_drivers)\'')">
+        <include file="$(find-pkg-share wheels_driver)/launch/wheels_driver_node.launch.xml">
+            <arg name="veh" value="$(var veh)"/>
+        </include>
+    </group>
+
+    <!-- Wheel Encoders -->
+    <group if="$(eval '\'$(var robot_configuration)\' != \'DB18\' and \'$(var robot_type)\' == \'duckiebot\' and \'$(var use_wheel_encoders)\'')">
+        <include file="$(find-pkg-share wheel_encoder)/launch/wheel_encoder_base.launch.xml">
+            <arg name="veh" value="$(var veh)"/>
+        </include>
+    </group>
+
+    <!-- Camera Node: reads frames from a physical camera and produces ROS messages -->
+    <group if="$(eval '\'$(var robot_type)\' in [\'duckiebot\', \'watchtower\', \'traffic_light\', \'duckiedrone\'] and \'$(var use_camera)\'')">
+        <include file="$(find-pkg-share camera_driver)/launch/camera_node.launch.xml">
+            <arg name="veh" value="$(var veh)"/>
+        </include>
+    </group>
+
+    <!-- Button driver -->
+    <group if="$(eval '\'$(var robot_configuration)\' in [\'DB21M\', \'DB21J\', \'DB21R\'] and \'$(var use_button)\'')">
+        <include file="$(find-pkg-share button_driver)/launch/button_driver_node.launch.xml">
+            <arg name="veh" value="$(var veh)"/>
+        </include>
+    </group>
+
+    <!-- OLED Display driver -->
+    <group if="$(eval '\'$(var robot_configuration)\' in [\'DB21M\', \'DB21J\', \'DB21R\'] and \'$(var use_oled_display)\'')">
+        <include file="$(find-pkg-share display_driver)/launch/display_driver_node.launch.xml">
+            <arg name="veh" value="$(var veh)"/>
+        </include>
+    </group>
+
+    <!-- Inertia Measurement Unit (IMU) Sensor -->
+    <group if="$(eval '\'$(var robot_configuration)\' in [\'DB21M\', \'DB21J\', \'DB21R\'] and \'$(var use_imu)\'')">
+        <include file="$(find-pkg-share imu_driver)/launch/imu_node.launch.xml">
+            <arg name="veh" value="$(var veh)"/>
+        </include>
+    </group>
+
+    <!-- Time of Flight (ToF) Sensor -->
+    <group if="$(eval '\'$(var robot_configuration)\' in [\'DB21M\', \'DB21J\', \'DB21R\'] and \'$(var use_tof)\'')">
+        <include file="$(find-pkg-share tof_driver)/launch/tof_node.launch.xml">
+            <arg name="veh" value="$(var veh)"/>
+        </include>
+    </group>
+
+    <!-- LED Emitters -->
+    <group if="$(eval '\'$(var robot_type)\' in [\'duckiebot\', \'watchtower\', \'traffic_light\'] and \'$(var use_leds)\'')">
+        <include file="$(find-pkg-share led_emitter)/launch/led_emitter_node.launch.xml">
+            <arg name="veh" value="$(var veh)"/>
+            <arg name="robot_type" value="$(var robot_type)"/>
+        </include>
+    </group>
+
+</launch>

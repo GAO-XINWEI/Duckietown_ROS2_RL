@@ -1,0 +1,28 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>duckiebot_interface</name>
+  <version>1.0.0</version>
+  <description>The duckiebot_interface meta package</description>
+  <maintainer email="mack@duckietown.org">Mack</maintainer>
+  <maintainer email="nicholasganshyan@gmail.com">Nicholas Gan</maintainer>
+
+  <license>GPLv3</license>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <exec_depend>button_driver</exec_depend>
+  <exec_depend>camera_driver</exec_depend>
+  <exec_depend>display_driver</exec_depend>
+  <exec_depend>imu_driver</exec_depend>
+  <exec_depend>joystick</exec_depend>
+  <exec_depend>tof_driver</exec_depend>
+  <exec_depend>wheels_driver</exec_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

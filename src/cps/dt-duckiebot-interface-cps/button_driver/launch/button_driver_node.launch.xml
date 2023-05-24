@@ -1,0 +1,12 @@
+<?xml version='1.0'?>
+<launch>
+    <arg name="veh"/>
+    <arg name="param_file_name" default="default.yaml"/>
+
+    <node pkg="button_driver" exec="button_driver_node"
+        name="button_driver_node" namespace="$(var veh)">
+        <param name="veh" value="$(var veh)"/>
+        <param from="$(find-pkg-share button_driver)/config/$(var param_file_name)"/>
+    </node>
+
+</launch>

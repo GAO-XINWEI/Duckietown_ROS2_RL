@@ -1,0 +1,17 @@
+<?xml version='1.0'?>
+<launch>
+    <arg name="veh"/>
+
+    <include file="$(find-pkg-share wheel_encoder)/launch/wheel_encoder_node.launch.xml">
+        <arg name="veh" value="$(var veh)"/>
+        <arg name="wheel" value="left"/>
+        <arg name="param_file_name" value="left_wheel.yaml"/>
+    </include>
+
+    <include file="$(find-pkg-share wheel_encoder)/launch/wheel_encoder_node.launch.xml">
+        <arg name="veh" value="$(var veh)"/>
+        <arg name="wheel" value="right"/>
+        <arg name="param_file_name" value="right_wheel.yaml"/>
+    </include>
+
+</launch>

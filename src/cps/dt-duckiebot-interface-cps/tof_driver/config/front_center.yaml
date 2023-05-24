@@ -1,0 +1,10 @@
+/**:
+  ros__parameters:
+    bus: 1
+    address: 0x29
+    sensor_name: "front_center"
+    frequency: 20
+    mode: "BETTER"
+    display_fragment_frequency: 4
+    mux_addr: 0x70
+    mux_channel: 1

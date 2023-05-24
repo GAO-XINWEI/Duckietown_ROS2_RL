@@ -1,0 +1,12 @@
+<?xml version='1.0'?>
+<launch>
+    <arg name="veh"/>
+    <arg name="param_file_name" default="front_center.yaml"/>
+
+    <node pkg="tof_driver" exec="tof_node"
+        name="tof_node" namespace="$(var veh)">
+        <param name="veh" value="$(var veh)"/>
+        <param from="$(find-pkg-share tof_driver)/config/$(var param_file_name)"/>
+    </node>
+
+</launch>

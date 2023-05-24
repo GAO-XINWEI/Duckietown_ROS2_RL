@@ -1,0 +1,2 @@
+Rect bounding_box
+ObstacleType type

@@ -1,0 +1,13 @@
+<launch>
+    <arg name="node_name" default="led_emitter_test_node"/>
+    <arg name="veh"/>
+    <arg name="signal" default="RED"/>
+    <arg name="config_file_name" default="LED_Protocol"/>
+
+    <node pkg="led_emitter" exec="led_emitter_test_node"
+        name="led_emitter_test_node" namespace="$(var veh)">
+        <remap from="~/set_pattern" to="/$(var veh)/led_emitter_node/set_pattern"/>
+        <param name="config_file_path" value="$(find-pkg-share led_emitter)/config/$(var config_file_name).yaml"/>
+        <param name="signal" value="$(var signal)"/>
+    </node>
+</launch>

@@ -1,0 +1,10 @@
+<?xml version='1.0'?>
+<launch>
+    <arg name="veh"/>
+    <arg name="publish_period" default="5.0"/>
+
+    <node pkg="battery_drivers" exec="battery_node"
+        name="battery_driver_node" namespace="$(var veh)">
+        <param name="publish_period" value="$(var publish_period)"/>
+    </node>
+</launch>

@@ -1,0 +1,200 @@
+<?xml version='1.0'?>
+<launch>
+    <arg name="demo_name"/>
+	<arg name="veh" default="$(env ROBOT_NAME)"
+        description="Unique name of the robot. Used as the namespace."/>
+    <arg name="robot_type" default="$(env ROBOT_TYPE)"
+         description="The type of the robot (e.g., duckiebot, watchtower, traffic_light, ...)"/>
+    <arg name="robot_hardware" default="$(env ROBOT_HARDWARE)"
+        description="The hardware of the robot (e.g., Raspberry Pi, Jetson Nano, ..."/>
+    <arg name="robot_configuration" default="$(env ROBOT_CONFIGURATION)"
+         description="The configuration of the robot (e.g., DB19, DB20, WT18, ...)"/>
+
+    <!-- Hardware drivers settings -->
+    <arg name="use_battery_health" default="false"/>
+    <arg name="use_hardware_stats" default="false"/>
+    <arg name="use_wheel_drivers" default="false"/>
+    <arg name="use_wheel_encoders" default="false"/>
+    <arg name="use_camera" default="false"/>
+    <arg name="use_button" default="false"/>
+    <arg name="use_oled_display" default="false"/>
+    <arg name="use_imu" default="false"/>
+    <arg name="use_tof" default="false"/>
+    <arg name="use_leds" default="false"/>
+
+    <!-- Fake camera settings -->
+    <arg name="use_fake_camera" default="false"
+        description="Launch the fake camera instead of using the real camera;
+            should NOT use both cameras at the same time!"/>
+    <arg name="fake_camera_type" default=""
+        description="The type of content to publish (e.g., image or video)"/>
+    <arg name="fake_camera_path" default=""
+        description="The absolute path to the content to publish."/>
+
+    <!-- OoD detector settings -->
+    <arg name="ood_detector" default="false"/>
+
+    <!-- Car interface settings -->
+    <arg name="use_kinematics_node" default="false"/>
+    <arg name="use_velocity_to_pose_node" default="false"/>
+    <arg name="use_cmd_switch_node" default="false"/>
+    <arg name="use_joy_mapper_node" default="false"/>
+    <arg name="default_passthrough" default="false"/>
+
+    <!-- Anti-instagram settings -->
+    <arg name="anti_instagram" default="false"/>
+    <arg name="anti_instagram_param_file_name" default="default"/>
+
+    <!-- Lane following stack settings-->
+    <arg name="lane_following" default="false"/>
+    <arg name="lane_following/line_detection" default="false"/>
+    <arg name="lane_following/ground_projection" default="false"/>
+    <arg name="lane_following/lane_filter" default="false"/>
+    <arg name="lane_following/stop_line_filter" default="false"/>
+    <arg name="lane_following/lane_controller" default="false"/>
+	<arg name="line_detector_param_file_name" default="default"/>
+	<arg name="ground_projection_param_file_name" default="default"/>
+    <arg name="lane_filter_param_file_name" default="default"/>
+    <arg name="stop_line_filter_param_file_name" default="default"/>
+    <arg name="lane_control_param_file_name" default="default"/>
+
+    <!-- Generic lane following stack settings -->
+    <arg name="generic_lane_following" default="false"/>
+    <arg name="generic_lane_following/line_detection" default="false"/>
+
+    <!-- Hardware drivers stack -->
+    <include file="$(find-pkg-share duckiebot_interface)/launch/all_drivers.launch.xml">
+        <arg name="use_battery_health" value="$(var use_battery_health)"/>
+        <arg name="use_hardware_stats" value="$(var use_hardware_stats)"/>
+        <arg name="use_wheel_drivers" value="$(var use_wheel_drivers)"/>
+        <arg name="use_wheel_encoders" value="$(var use_wheel_encoders)"/>
+        <arg name="use_camera" value="$(var use_camera)"/>
+        <arg name="use_button" value="$(var use_button)"/>
+        <arg name="use_oled_display" value="$(var use_oled_display)"/>
+        <arg name="use_imu" value="$(var use_imu)"/>
+        <arg name="use_tof" value="$(var use_tof)"/>
+        <arg name="use_leds" value="$(var use_leds)"/>
+    </include>
+
+    <!-- Fake camera stack -->
+    <group if="$(var use_fake_camera)">
+        <push-ros-namespace namespace="$(var veh)"/>
+        <include file="$(find-pkg-share ros2_video_streamer)/launch/ros2_video_streamer_node.launch.xml">
+            <arg name="node_name" value="camera_node"/>
+            <arg name="config_file_name" value="duckiebot_camera"/>
+            <arg name="loop" value="true"/>
+            <arg name="frame_id" value="$(var veh)/camera_optical_frame"/>
+            <arg name="type" value="$(var fake_camera_type)"/>
+            <arg name="path" value="$(var fake_camera_path)"/>
+            <arg name="start" value="0"/>
+        </include>
+    </group>
+
+    <!-- Car interface stack -->
+    <include file="$(find-pkg-share car_interface)/launch/all.launch.xml">
+        <arg name="veh" value="$(var veh)"/>
+        <arg name="use_kinematics_node" value="$(var use_kinematics_node)"/>
+        <arg name="use_velocity_to_pose_node" value="$(var use_velocity_to_pose_node)"/>
+        <arg name="use_cmd_switch_node" value="$(var use_cmd_switch_node)"/>
+        <arg name="use_joy_mapper_node" value="$(var use_joy_mapper_node)"/>
+        <arg name="default_passthrough" value="$(var default_passthrough)"/>
+    </include>
+
+    <!-- Anti-instagram stack -->
+    <group if="$(var anti_instagram)">
+        <set_remap from="/$(var veh)/anti_instagram_node/uncorrected_image/compressed"
+            to="/$(var veh)/camera_node/image/compressed"/>
+        <include file="$(find-pkg-share anti_instagram)/launch/anti_instagram_node.launch.xml">
+            <arg name="veh" value="$(var veh)"/>
+            <arg name="param_file_name" value="$(var anti_instagram_param_file_name)"/>
+        </include>
+    </group>
+
+    <!-- Out-of-Distribution stack -->
+    <group if="$(var ood_detector)">
+        <!-- Input for OoD node is the line_detector node -->
+        <set_remap from="~/ood_input" to="/$(var veh)/line_detector_node/ood_input"/>
+        <set_remap from="~/ood_alert" to="/$(var veh)/gatekeeper_node/ood_alert"/>
+        <include file="$(find-pkg-share ood_detector)/launch/ood_detector_node.launch.xml">
+            <arg name="veh" value="$(var veh)"/>
+        </include>
+    </group>
+
+    <!-- Lane following stack -->
+    <group if="$(var lane_following)">
+        <!-- Line/Lane Detector-->
+        <group if="$(var lane_following/line_detection)">
+            <set_remap from="~/thresholds" to="/$(var veh)/anti_instagram_node/thresholds"/>
+            <set_remap from="~/image/compressed" to="/$(var veh)/camera_node/image/compressed"/>
+            <include file="$(find-pkg-share line_detector)/launch/line_detector_node.launch.xml">
+                <arg name="veh" value="$(var veh)"/>
+                <arg name="param_file_name" value="$(var line_detector_param_file_name)"/>
+            </include>
+        </group>
+
+        <!-- Ground Projection -->
+        <group if="$(var lane_following/ground_projection)">
+            <set_remap from="~/camera_info" to="/$(var veh)/camera_node/camera_info"/>
+            <group unless="$(var ood_detector)">
+                <set_remap from="~/lineseglist_in" to="/$(var veh)/line_detector_node/segment_list"/>
+                <include file="$(find-pkg-share ground_projection)/launch/ground_projection_node.launch.xml">
+                    <arg name="veh" value="$(var veh)"/>
+                </include>
+            </group>
+            <group if="$(var ood_detector)">
+                <set_remap from="~/lineseglist_in" to="/$(var veh)/ood_detector_node/ood_segment_list"/>
+                <include file="$(find-pkg-share ground_projection)/launch/ground_projection_node.launch.xml">
+                    <arg name="veh" value="$(var veh)"/>
+                </include>
+            </group>
+        </group>
+
+        <!-- Lane Filter -->
+        <group if="$(var lane_following/lane_filter)">
+            <set_remap from="~/segment_list" to="/$(var veh)/ground_projection_node/lineseglist_out"/>
+            <!-- The `lane_controller` node sends its `car_cmd` to the `kinematics_node` -->
+            <set_remap from="~/car_cmd" to="/$(var veh)/kinematics_node/car_cmd"/>
+            <include file="$(find-pkg-share lane_filter)/launch/lane_filter_node.launch.xml">
+                <arg name="veh" value="$(var veh)"/>
+                <arg name="config_file_name" value="$(var lane_filter_param_file_name)"/>
+            </include>
+        </group>
+
+        <!-- Stop Line Filter -->
+        <group if="$(var lane_following/stop_line_filter)">
+            <set_remap from="~/lane_pose" to="/$(var veh)/lane_filter_node/lane_pose"/>
+            <set_remap from="~/segment_list" to="/$(var veh)/ground_projection_node/lineseglist_out"/>
+            <include file="$(find-pkg-share stop_line_filter)/launch/stop_line_filter_node.launch.xml">
+                <arg name="veh" value="$(var veh)"/>
+                <arg name="config_file_name" value="$(var stop_line_filter_param_file_name)"/>
+            </include>
+        </group>
+
+        <!-- Lane Controller -->
+        <group if="$(var lane_following/lane_controller)">
+            <!-- Send `car_cmd` to the kinematic node -->
+            <set_remap from="~/car_cmd" to="/$(var veh)/gatekeeper_node/in_car_cmd"/>
+            <set_remap from="~/lane_pose" to="/$(var veh)/lane_filter_node/lane_pose"/>
+            <set_remap from="~/wheels_cmd" to="/$(var veh)/wheels_driver_node/wheels_cmd"/>
+            <set_remap from="~/obstacle_distance_reading" to="/$(var veh)/road_anomaly_watcher/obstacle_distance"/>
+            <set_remap from="~/stop_line_reading" to="/$(var veh)/stop_line_filter_node/stop_line_reading"/>
+            <include file="$(find-pkg-share lane_control)/launch/lane_controller_node.launch.xml">
+                <arg name="veh" value="$(var veh)"/>
+                <arg name="config_file_name" value="$(var lane_control_param_file_name)"/>
+            </include>
+        </group>
+
+    </group>
+
+    <!-- Generic lane following stack -->
+    <group if="$(var generic_lane_following)">
+        <!-- Line/Lane Detector-->
+        <group if="$(var generic_lane_following/line_detection)">
+            <set_remap from="~/image/compressed" to="/$(var veh)/camera_node/image/compressed"/>
+            <include file="$(find-pkg-share generic_line_detector)/launch/generic_line_detector_node.launch.xml">
+                <arg name="veh" value="$(var veh)"/>
+            </include> -->
+        </group>
+    </group>
+
+</launch>

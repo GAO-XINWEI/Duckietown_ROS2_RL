@@ -1,0 +1,7 @@
+---
+bool valid
+string version
+string boot_version
+string boot_pcb_version
+string boot_date
+string serial_number

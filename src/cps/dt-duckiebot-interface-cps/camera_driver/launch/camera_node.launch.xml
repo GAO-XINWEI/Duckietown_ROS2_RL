@@ -1,0 +1,12 @@
+<?xml version='1.0'?>
+<launch>
+    <arg name="veh"/>
+    <arg name="config_file_name" default="jetson_nano_camera.yaml"/>
+
+    <node pkg="camera_driver" exec="jetson_nano_camera_node"
+        name="camera_node" namespace="$(var veh)">
+        <param name="veh" value="$(var veh)"/>
+        <param from="$(find-pkg-share camera_driver)/config/$(var config_file_name)"/>
+    </node>
+
+</launch>

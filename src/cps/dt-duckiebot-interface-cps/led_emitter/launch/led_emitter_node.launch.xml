@@ -1,0 +1,12 @@
+<launch>
+    <arg name="node_name" default="led_emitter_node"/>
+    <arg name="veh"/>
+    <arg name="robot_type" default="duckiebot"/>
+    <arg name="config_file_name" default="LED_Protocol.yaml"/>
+
+    <node pkg="led_emitter" exec="led_emitter_node" name="led_emitter_node"
+        namespace="$(var veh)">
+        <param name="config_file_path" value="$(find-pkg-share led_emitter)/config/$(var config_file_name)"/>
+        <param name="robot_type" value="$(var robot_type)"/>
+    </node>
+</launch>

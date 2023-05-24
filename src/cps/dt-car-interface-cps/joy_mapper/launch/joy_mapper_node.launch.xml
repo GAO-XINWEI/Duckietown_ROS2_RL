@@ -1,0 +1,11 @@
+<?xml version='1.0'?>
+<launch>
+    <arg name="veh"/>
+    <arg name="param_file_name" default="default"/>
+
+    <node pkg="joy_mapper" exec="joy_mapper_node" name="joy_mapper_node"
+        namespace="$(var veh)">
+        <param from="$(find-pkg-share joy_mapper)/config/$(var param_file_name).yaml"/>
+    </node>
+
+</launch>

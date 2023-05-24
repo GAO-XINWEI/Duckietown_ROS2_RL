@@ -1,0 +1,9 @@
+<?xml version='1.0'?>
+<launch>
+    <arg name="veh"/>
+
+    <node pkg="ground_projection" exec="ground_projection_node" 
+        name="ground_projection_node" namespace="$(var veh)">
+        <param name="veh" value="$(var veh)"/>
+    </node>
+</launch>

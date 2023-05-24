@@ -1,0 +1,6 @@
+string sensor_position    #expect tof_fl, tof_fm, tof_fr, tof_sl, tof_sr, tof_bl, tof_br
+---
+uint16 distance
+uint16 confidence_value
+uint16 valid_pixels
+string time_stamp
