@@ -6,6 +6,7 @@
   <description>Demostrations for Duckietown</description>
   <maintainer email="lpaull@mit.edu">Liam Paull</maintainer>
   <maintainer email="nicholasganshyan@gmail.com">nicholas-gs</maintainer>
+  <maintainer email="1362509665@qq.com">gao-xinwei</maintainer>
   <license>GPLv3</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>

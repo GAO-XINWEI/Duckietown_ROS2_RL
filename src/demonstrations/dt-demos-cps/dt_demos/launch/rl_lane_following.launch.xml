@@ -28,9 +28,10 @@
 
         <!-- Camera and anti instagram -->
         <arg name="anti_instagram" value="true"/>
+    </include>
 
         <!-- Reinforcement Learning Control -->
-        <arg name="rl_control" value="$(var rl_control)"/>
+    <node pkg="rl_control" value="$(var rl_control)"/>
         
-    </include>
+
 </launch>
