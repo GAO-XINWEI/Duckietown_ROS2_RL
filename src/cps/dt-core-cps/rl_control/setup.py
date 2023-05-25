@@ -24,7 +24,7 @@ setup(
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-        	'rl_control_node = rl_control_node.rl_control_node:main'
+        	'rl_control_node = rl_control.rl_control_node:main'
         ],
     },
 )

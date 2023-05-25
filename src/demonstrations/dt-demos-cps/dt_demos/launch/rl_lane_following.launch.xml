@@ -31,7 +31,7 @@
     </include>
 
         <!-- Reinforcement Learning Control -->
-    <node pkg="rl_control" value="$(var rl_control)"/>
+    <node pkg="rl_control" exec="rl_control_node" name="rl_control" />
         
 
 </launch>
