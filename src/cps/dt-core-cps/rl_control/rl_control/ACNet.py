@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 from torch.distributions import MultivariateNormal
 import numpy as np
-from Parameters import *
+from rl_control.Parameters import *
 
 
 def normalized_columns_initializer(weights, std=1.0):
