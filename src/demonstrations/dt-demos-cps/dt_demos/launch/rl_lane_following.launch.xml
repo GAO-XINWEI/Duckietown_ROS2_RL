@@ -4,6 +4,10 @@
     <arg name="rl_control" default="false"
         description="Use Reinforcement Learning control."/>
 
+    <arg name="device" default="cpu"/>
+    <arg name="model_path" default="/home/duckie/dt_ws/src/cps/dt-core-cps/rl_control/rl_control"/>
+    <arg name="model" default="checkpoint.pkl"/>
+
     <include file="$(find-pkg-share dt_demos)/common.launch.xml">
         <arg name="demo_name" value="$(var demo_name)"/>
 
@@ -31,7 +35,13 @@
     </include>
 
         <!-- Reinforcement Learning Control -->
-    <node pkg="rl_control" exec="rl_control_node" name="rl_control" />
-        
+    <!-- <node pkg="rl_control" exec="rl_control_node" name="rl_control" /> -->
+    <node pkg="rl_control" exec="rl_control_node" name="rl_control_node" 
+        namespace="$(var veh)">
+        <param name="veh" value="$(var veh)"/>
+        <param name="model" value="$(var model)"/>
+        <param name="device" value="$(var device)"/>
+        <param name="model_path" value="$(var model_path)"/>
+    </node>    
 
 </launch>

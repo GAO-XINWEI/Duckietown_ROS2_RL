@@ -1,0 +1,6 @@
+# Reinforcement Learning module Parameters
+# model name
+model: checkpoint.pkl
+
+# torch_device: cpu or tpu
+torch_device: cpu
