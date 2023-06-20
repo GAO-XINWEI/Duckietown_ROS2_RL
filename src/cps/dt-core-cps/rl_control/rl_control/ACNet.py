@@ -90,7 +90,7 @@ class ACNet(nn.Module):
         action_mean = ACTOR_MEAN_FACTOR * torch.tanh(self.actor_mu(self.actor_full(shared_lstm))/ACTOR_MEAN_FACTOR)
         cov_mat = torch.diag_embed(torch.clamp(
             ACTOR_SIGMA_FACTOR * torch.sigmoid(self.actor_sigma(self.actor_full(shared_lstm))),     # todo
-            VARIANCE_BOUNDARY))
+            min=VARIANCE_BOUNDARY))
         # critic
         state_value = CITIC_NET_FACTOR * self.critic_full(shared_lstm)
         """'''action dim'''
@@ -115,35 +115,39 @@ class ACNet(nn.Module):
         # print('action_mean', action_mean)
         # print('cov_mat', cov_mat)"""
 
-        try:
-            dist = MultivariateNormal(action_mean, cov_mat)
-        except:
-            # error when gradiant blow out
-            print('state', state, 'state_value', state_value, 'action_mean', action_mean, 'cov_mat', cov_mat)
-            print(dist)
-            raise ValueError
-        if old_action is None:
-            action = torch.clamp(dist.sample(), -1, 1)
-            # print(action)
-            if BOOL_TRAINING:
-                if np.random.uniform(0, 1) < EGREEDY:
-                    action = torch.tensor(np.expand_dims(np.random.uniform(-1, 1, 2), axis=0), dtype=torch.float32).to(self.device)
-            # print(action)
-        else:
-            action = old_action
-        action_logprob = dist.log_prob(action)
-        dist_entropy = dist.entropy()
-        # if old_action is not None:
-        #     print('old_action', old_action)
-        #     print('dist', dist)
-        #     print('dist.log_prob(old_action)', dist.log_prob(action))
-        #     print('dist.prob(old_action)', torch.exp(dist.log_prob(action)))
-        # else:
-        #     print('action', action)
-        #     print('dist', dist)
-        #     print('dist.log_prob(action)', dist.log_prob(action))
+        # action = action_mean + cov_mat * torch.randn_like(cov_mat)
+        action = action_mean
+        return action.detach(), None, None, None, None
 
-        return action.detach(), torch.squeeze(state_value), lstm_state, action_logprob, dist_entropy
+        # try:
+        #     dist = MultivariateNormal(action_mean, cov_mat)
+        # except:
+        #     # error when gradiant blow out
+        #     print('state', state, 'state_value', state_value, 'action_mean', action_mean, 'cov_mat', cov_mat)
+        #     # print(dist)
+        #     raise ValueError
+        # if old_action is None:
+        #     action = torch.clamp(dist.sample(), -1, 1)
+        #     # print(action)
+        #     if BOOL_TRAINING:
+        #         if np.random.uniform(0, 1) < EGREEDY:
+        #             action = torch.tensor(np.expand_dims(np.random.uniform(-1, 1, 2), axis=0), dtype=torch.float32).to(self.device)
+        #     # print(action)
+        # else:
+        #     action = old_action
+        # action_logprob = dist.log_prob(action)
+        # dist_entropy = dist.entropy()
+        # # if old_action is not None:
+        # #     print('old_action', old_action)
+        # #     print('dist', dist)
+        # #     print('dist.log_prob(old_action)', dist.log_prob(action))
+        # #     print('dist.prob(old_action)', torch.exp(dist.log_prob(action)))
+        # # else:
+        # #     print('action', action)
+        # #     print('dist', dist)
+        # #     print('dist.log_prob(action)', dist.log_prob(action))
+
+        # return action.detach(), torch.squeeze(state_value), lstm_state, action_logprob, dist_entropy
 
 
 if __name__ == '__main__':

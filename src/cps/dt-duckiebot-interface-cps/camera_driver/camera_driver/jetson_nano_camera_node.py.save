@@ -61,17 +61,17 @@ class JetsonNanoCameraNode(AbsCameraNode):
 
     def _flow_monitor_fcn(self):
         i = 0
-        failure_timeout = 310
+        failure_timeout = 20
         while not self.is_shutdown:
             # do nothing for the first `sleep_until` seconds,
             # then check every 5 seconds
             if (self._has_published or i > failure_timeout) and i % 5 == 0:
                 elapsed_since_last = time.time() - self._last_image_published_time
                 # reset nvargus if no images were received within the last 10 secs
-                if elapsed_since_last >= 300:
+                if elapsed_since_last >= 10:
                     self.get_logger().info(
                         f"[data-flow-monitor]: Detected a period of"\
-                        f" {int(elapsed_since_last)} seconds during which no"\
+ d                       f" {int(elapsed_since_last)} seconds during which no"\
                         f" images were produced, restarting camera process.")
                     # find PID of the nvargus process
                     killed = False
@@ -104,7 +104,7 @@ class JetsonNanoCameraNode(AbsCameraNode):
                         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                             pass
                     if not killed:
-                        self.get_logger().info("[data-flow-monitor]: Process 'nvargus-daemon' not found.")
+                        self.loginfo("[data-flow-monitor]: Process 'nvargus-daemon' not found.")
             # ---
             i += 1
             time.sleep(1)
@@ -120,7 +120,7 @@ class JetsonNanoCameraNode(AbsCameraNode):
         # get first frame
         retval, image = self._device.read() if self._device else (False, None)
         # keep reading
-        while (not self.is_stopped) and (not self.is_shutdown): # and retval
+        while (not self.is_stopped) and (not self.is_shutdown) and retval:
             if image is not None:
                 if self._use_hw_acceleration:
                     # with HW acceleration, the NVJPG Engine module is used to encode RGB -> JPEG

@@ -1,2 +1,3 @@
+# FloatArray
 std_msgs/Header header
-float32[2] data
+ActionFloat32[] data

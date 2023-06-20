@@ -24,6 +24,7 @@ find_package(dt_interfaces_cps REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
 
 set(msg_files
+  "msg/ActionFloat32.msg"
   "msg/ActionFloat32Array2.msg"
 )
 

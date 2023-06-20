@@ -24,7 +24,7 @@ from threading import Event, Lock, Thread
 from rl_control.ACNet import ACNet
 from rl_control.Parameters import *
 from dt_interfaces_cps.msg import WheelsCmd
-from dt_rl_interfaces_cps.msg import ActionFloat32Array2
+from dt_rl_interfaces_cps.msg import ActionFloat32Array2, ActionFloat32
 
 resize_to_tensor = tran.Compose([tran.ToPILImage(),
                                  tran.Resize(STATE_SIZE),
@@ -36,7 +36,7 @@ class RLControl(Node):
 
         # CV Bridge
         self.bridge = CvBridge()
-        self.lock = Lock()
+        # self.lock = Lock()
         self.last_frame = None
         
         # Load parameters
@@ -66,12 +66,22 @@ class RLControl(Node):
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.model.eval()
         self.get_logger().info(f'Network loaded. Using device: {self.device}')
+        # self.get_logger().info(f'Load network: {self.model}')
         #Additional Info when using cuda
         if self.device.type == 'cuda':
             self.get_logger().info(torch.cuda.get_device_name(0))
             # self.get_logger().info('Memory Usage:')
             # self.get_logger().info(f'Allocated: {round(torch.cuda.memory_allocated(0)/1024**3,1)} GB')
             # self.get_logger().info(f'Cached: {round(torch.cuda.memory_reserved(0)/1024**3,1)} GB')
+
+        # todo: 10 times input
+        self.get_logger().info(f'Ready to input.')
+        test_tensor = 255 * np.random.random(size=(1, 3, 30, 40))
+        # _tensor = torch.tensor(255 * np.random.random(size=(1, 3, 30, 40)), dtype=torch.float32).to(self.device)
+        for i in range(10):
+            with torch.no_grad():
+                _, _, _, _, _ = self.model(torch.tensor(test_tensor, dtype=torch.float32).to(self.device), lstm_state=None, old_action=None)
+            self.get_logger().info(f'Run {i} times input done!')
 
         # Subscribers
         self.sub_img = self.create_subscription(
@@ -85,33 +95,36 @@ class RLControl(Node):
             ActionFloat32Array2,
             "/rl/action_cmd",
             1)
+        self.pub_action_motor = self.create_publisher(
+            WheelsCmd,
+            "/wheels_driver_node/wheels_cmd",
+            1)
 
         self.get_logger().info("Initialized")
         
         
-    def img_callback(self, data):
-        # self.get_logger().info(f'Image Callback')
-        if self.lock.acquire(True, timeout=1.0):
-            try:
-                self.get_logger().info(f'Image Callback with new frame updated.')
-                self.last_frame = data
-            finally:
-                self.lock.release()
+    # def img_callback(self, data):
+    #     # self.get_logger().info(f'Image Callback')
+    #     if self.lock.acquire(True, timeout=1.0):
+    #         try:
+    #             self.get_logger().info(f'Image Callback with new frame updated.')
+    #             self.last_frame = data
+    #         finally:
+    #             self.lock.release()
 
     def _img_callback(self, data):
         self.get_logger().info(f'point 1: entry')
-        self.lock.acquire()
+        # self.lock.acquire()
         self.get_logger().info(f'point 2: lock')
         try:
-            frame = np.fromstring(self.data, np.uint8)
-            self.last_frame = None
+            frame = np.fromstring(bytes(data.data), np.uint8)
+            # self.last_frame = None
             self.get_logger().info(f'point 3: new frame')
         except AttributeError:
-            rospy.logwarn('Camera node is not yet ready...')
-            rospy.sleep(1)
-            return
-        finally:
-            self.lock.release()
+            self.get_logger().info('Camera node is not yet ready...')
+        #     rclpy.sleep(1.0)
+        # finally:
+        #   self.lock.release()
 
         # Preprocess
         self.get_logger().info(f'point 4: pre preprocess')
@@ -142,6 +155,9 @@ class RLControl(Node):
         with torch.no_grad():
             actions, _, lstm_states, _, _ = self.model(states.to(self.device), lstm_state=lstm_states, old_action=None)
         action = actions.cpu().data.numpy().flatten()
+        self.get_logger().info(f'infer action is: {action}')
+        action = np.clip(action, -1, 1)
+        self.get_logger().info(f'infer action is: {action}')
         vel, angle = action
         return [vel, angle]
         
@@ -149,45 +165,52 @@ class RLControl(Node):
         """Publishes the output of the model as a control message."""
         self.get_logger().info(f'publish_control_msg()')
         vel, angle = action
-        vel_left, vel_right = vel, angle
-        # msg = WheelsCmd()
-        # msg.vel_left = vel_left
-        # msg.vel_right = vel_right
+        vel_left = ActionFloat32()
+        vel_right = ActionFloat32()
+
+        # todo: running
+        vel_left.data, vel_right.data = [float(vel)], [float(angle)]
         msg = ActionFloat32Array2()
         msg.header.stamp = self.get_clock().now().to_msg()
-        msg.data = action
+        msg.data = [vel_left, vel_right]
+        # msg.data = list(vel_left, vel_right)
         self.pub_action_net.publish(msg)
+
+        msg = WheelsCmd()
+        msg.vel_left = float(vel)
+        msg.vel_right = float(angle)
+        self.pub_action_motor.publish(msg)
         
-    def process_action(self, states):
-        self.get_logger().info(f'process_action()')
-        while rclpy.ok():
-            if self.last_frame is not None:
-                self.get_logger().info(f'point 1: entry')
-                self.lock.acquire()
-                self.get_logger().info(f'point 2: lock')
-                try:
-                    frame = np.fromstring(self.last_frame.data, np.uint8)
-                    self.last_frame = None
-                    self.get_logger().info(f'point 3: new frame')
-                except AttributeError:
-                    rospy.logwarn('Camera node is not yet ready...')
-                    continue
-                finally:
-                    self.lock.release()
+    # def process_action(self, states):
+    #     self.get_logger().info(f'process_action()')
+    #     while rclpy.ok():
+    #         if self.last_frame is not None:
+    #             self.get_logger().info(f'point 1: entry')
+    #             self.lock.acquire()
+    #             self.get_logger().info(f'point 2: lock')
+    #             try:
+    #                 frame = np.fromstring(self.last_frame.data, np.uint8)
+    #                 self.last_frame = None
+    #                 self.get_logger().info(f'point 3: new frame')
+    #             except AttributeError:
+    #                 rospy.logwarn('Camera node is not yet ready...')
+    #                 continue
+    #             finally:
+    #                 self.lock.release()
 
-                # Preprocess
-                self.get_logger().info(f'point 4: pre preprocess')
-                preprocessed_img = self.preprocess_img(frame)
-                self.get_logger().info(f'point 5: after preprocess')
+    #             # Preprocess
+    #             self.get_logger().info(f'point 4: pre preprocess')
+    #             preprocessed_img = self.preprocess_img(frame)
+    #             self.get_logger().info(f'point 5: after preprocess')
 
-                # Infer Action
-                action = self.infer_action(preprocessed_img)
-                self.get_logger().info(f'point 6: action infered')
+    #             # Infer Action
+    #             action = self.infer_action(preprocessed_img)
+    #             self.get_logger().info(f'point 6: action infered')
                 
-                # Publish Message
-                self.publish_control_msg(action)
+    #             # Publish Message
+    #             self.publish_control_msg(action)
 
-                self.get_logger().info('Action published')
+    #             self.get_logger().info('Action published')
 
 
 def main(args=None):
@@ -195,11 +218,11 @@ def main(args=None):
     node = RLControl("rl_control_node")
     try:
         # run the model in a separate thread
-        print('rl_control_node > main(): Staring thread.')
-        thread = Thread(target=node.process_action)
-        thread.start()
+        # print('rl_control_node > main(): Staring thread.')
+        # thread = Thread(target=node.process_action)
+        # thread.start()
+        print('rl_control_node > main(): Spining...')
         rclpy.spin(node)
-        print('rl_control_node > main(): Thread Stared.')
     except KeyboardInterrupt:
         pass
     finally:

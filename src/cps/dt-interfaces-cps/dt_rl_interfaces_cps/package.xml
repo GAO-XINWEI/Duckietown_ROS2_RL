@@ -3,8 +3,8 @@
 <package format="3">
   <name>dt_rl_interfaces_cps</name>
   <version>1.0.0</version>
-  <description>Interfaces for the Reinforcement Learning.</description>
-  <maintainer email="1362509665@qq.com">xinwei</maintainer>
+  <description>Interfaces for the RL policy.</description>
+  <maintainer email="1362509665@qq.com">XINWEI-GAO</maintainer>
   <license>GPLv3</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
