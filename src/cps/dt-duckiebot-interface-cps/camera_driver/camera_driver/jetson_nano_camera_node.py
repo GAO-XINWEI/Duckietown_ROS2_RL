@@ -247,8 +247,13 @@ def main(args=None):
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
-        pass
+        # pass
+        # (xinwei) - shut-down camera node and release the GPIO
+        node.on_shutdown()
+        node.destroy_node()
+        rclpy.shutdown()
     finally:
+        node.on_shutdown()
         node.destroy_node()
         rclpy.shutdown()
 

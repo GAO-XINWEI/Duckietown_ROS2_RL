@@ -29,9 +29,9 @@ class DaguWheelsDriver:
         # print out some stats
         # this = self.__class__.__name__
         # print(f"[{this}] Running in configuration `{rcfg.name}`,\
-        #     using driver `{DTHAT.__name__}`")
-        # print(f"[{this}] Motor #1: {self.leftMotor}")
-        # print(f"[{this}] Motor #2: {self.rightMotor}")
+            # using driver `{DTHAT.__name__}`")
+        print(f"Motor #1: {self.leftMotor}")
+        print(f"Motor #2: {self.rightMotor}")
 
         # initialize state
         self.leftSpeed = 0.0

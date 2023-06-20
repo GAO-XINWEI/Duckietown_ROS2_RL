@@ -23,7 +23,7 @@ from sensor_msgs.msg import CompressedImage
 from threading import Event, Lock, Thread
 from rl_control.ACNet import ACNet
 from rl_control.Parameters import *
-from dt_interfaces_cps.msg import WheelsCmd
+from dt_interfaces_cps.msg import WheelsCmdStamped
 from dt_rl_interfaces_cps.msg import ActionFloat32Array2, ActionFloat32
 
 resize_to_tensor = tran.Compose([tran.ToPILImage(),
@@ -36,18 +36,10 @@ class RLControl(Node):
 
         # CV Bridge
         self.bridge = CvBridge()
-        # self.lock = Lock()
         self.last_frame = None
         
         # Load parameters
-        # params_file = os.path.join(os.path.dirname(__file__), 'policy_params.yml')
         self.params = {}
-        # with open(params_file, 'r') as paramf:
-        #     self.params = yaml.safe_load(paramf.read())
-        # rospy.loginfo('Loaded the following parameters:')
-        # for param in self.params:
-        #     rospy.loginfo(f'{param}: {self.params[param]}')
-        # declare parameters
         self.declare_parameter('veh')
         self.declare_parameter('model')
         self.declare_parameter('device')
@@ -66,18 +58,13 @@ class RLControl(Node):
         self.model.load_state_dict(checkpoint['model_state_dict'])
         self.model.eval()
         self.get_logger().info(f'Network loaded. Using device: {self.device}')
-        # self.get_logger().info(f'Load network: {self.model}')
-        #Additional Info when using cuda
+        # Additional Info when using cuda
         if self.device.type == 'cuda':
             self.get_logger().info(torch.cuda.get_device_name(0))
-            # self.get_logger().info('Memory Usage:')
-            # self.get_logger().info(f'Allocated: {round(torch.cuda.memory_allocated(0)/1024**3,1)} GB')
-            # self.get_logger().info(f'Cached: {round(torch.cuda.memory_reserved(0)/1024**3,1)} GB')
 
         # todo: 10 times input
         self.get_logger().info(f'Ready to input.')
         test_tensor = 255 * np.random.random(size=(1, 3, 30, 40))
-        # _tensor = torch.tensor(255 * np.random.random(size=(1, 3, 30, 40)), dtype=torch.float32).to(self.device)
         for i in range(10):
             with torch.no_grad():
                 _, _, _, _, _ = self.model(torch.tensor(test_tensor, dtype=torch.float32).to(self.device), lstm_state=None, old_action=None)
@@ -93,38 +80,23 @@ class RLControl(Node):
         # Publishers
         self.pub_action_net = self.create_publisher(
             ActionFloat32Array2,
-            "/rl/action_cmd",
+            "rl/action_cmd",
             1)
         self.pub_action_motor = self.create_publisher(
-            WheelsCmd,
-            "/wheels_driver_node/wheels_cmd",
+            WheelsCmdStamped,
+            "wheels_driver_node/wheels_cmd",
             1)
 
         self.get_logger().info("Initialized")
-        
-        
-    # def img_callback(self, data):
-    #     # self.get_logger().info(f'Image Callback')
-    #     if self.lock.acquire(True, timeout=1.0):
-    #         try:
-    #             self.get_logger().info(f'Image Callback with new frame updated.')
-    #             self.last_frame = data
-    #         finally:
-    #             self.lock.release()
 
     def _img_callback(self, data):
         self.get_logger().info(f'point 1: entry')
-        # self.lock.acquire()
         self.get_logger().info(f'point 2: lock')
         try:
             frame = np.fromstring(bytes(data.data), np.uint8)
-            # self.last_frame = None
             self.get_logger().info(f'point 3: new frame')
         except AttributeError:
             self.get_logger().info('Camera node is not yet ready...')
-        #     rclpy.sleep(1.0)
-        # finally:
-        #   self.lock.release()
 
         # Preprocess
         self.get_logger().info(f'point 4: pre preprocess')
@@ -155,7 +127,6 @@ class RLControl(Node):
         with torch.no_grad():
             actions, _, lstm_states, _, _ = self.model(states.to(self.device), lstm_state=lstm_states, old_action=None)
         action = actions.cpu().data.numpy().flatten()
-        self.get_logger().info(f'infer action is: {action}')
         action = np.clip(action, -1, 1)
         self.get_logger().info(f'infer action is: {action}')
         vel, angle = action
@@ -164,63 +135,45 @@ class RLControl(Node):
     def publish_control_msg(self, action):
         """Publishes the output of the model as a control message."""
         self.get_logger().info(f'publish_control_msg()')
-        vel, angle = action
-        vel_left = ActionFloat32()
-        vel_right = ActionFloat32()
 
-        # todo: running
+        vel, angle = action
+        vel_left, vel_right = ActionFloat32(), ActionFloat32()
         vel_left.data, vel_right.data = [float(vel)], [float(angle)]
         msg = ActionFloat32Array2()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.data = [vel_left, vel_right]
-        # msg.data = list(vel_left, vel_right)
         self.pub_action_net.publish(msg)
 
-        msg = WheelsCmd()
-        msg.vel_left = float(vel)
-        msg.vel_right = float(angle)
+        # transfer to wheel cmd
+        def action_to_wheel(action):
+            vel, angle = action
+            # Distance between the wheels
+            # assuming same motor constants k for both motors
+            # adjusting k by gain and trim
+            k_r_inv = (GAIN + TRIM) / K
+            k_l_inv = (GAIN - TRIM) / K
+            omega_r = (vel + 0.5 * angle * WHEEL_DIST) / RADIUS
+            omega_l = (vel - 0.5 * angle * WHEEL_DIST) / RADIUS
+            # conversion from motor rotation rate to duty cycle
+            u_r = omega_r * k_r_inv
+            u_l = omega_l * k_l_inv
+            # limiting output to limit, which is 1.0 for the duckiebot
+            u_r_limited = max(min(u_r, LIMIT), -LIMIT)
+            u_l_limited = max(min(u_l, LIMIT), -LIMIT)
+            return u_r_limited, u_r_limited
+
+        vel_left, vel_right = action_to_wheel(action)
+        msg = WheelsCmdStamped()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.vel_left = float(vel_left)
+        msg.vel_right = float(vel_right)
         self.pub_action_motor.publish(msg)
         
-    # def process_action(self, states):
-    #     self.get_logger().info(f'process_action()')
-    #     while rclpy.ok():
-    #         if self.last_frame is not None:
-    #             self.get_logger().info(f'point 1: entry')
-    #             self.lock.acquire()
-    #             self.get_logger().info(f'point 2: lock')
-    #             try:
-    #                 frame = np.fromstring(self.last_frame.data, np.uint8)
-    #                 self.last_frame = None
-    #                 self.get_logger().info(f'point 3: new frame')
-    #             except AttributeError:
-    #                 rospy.logwarn('Camera node is not yet ready...')
-    #                 continue
-    #             finally:
-    #                 self.lock.release()
-
-    #             # Preprocess
-    #             self.get_logger().info(f'point 4: pre preprocess')
-    #             preprocessed_img = self.preprocess_img(frame)
-    #             self.get_logger().info(f'point 5: after preprocess')
-
-    #             # Infer Action
-    #             action = self.infer_action(preprocessed_img)
-    #             self.get_logger().info(f'point 6: action infered')
-                
-    #             # Publish Message
-    #             self.publish_control_msg(action)
-
-    #             self.get_logger().info('Action published')
-
 
 def main(args=None):
     rclpy.init(args=args)
     node = RLControl("rl_control_node")
     try:
-        # run the model in a separate thread
-        # print('rl_control_node > main(): Staring thread.')
-        # thread = Thread(target=node.process_action)
-        # thread.start()
         print('rl_control_node > main(): Spining...')
         rclpy.spin(node)
     except KeyboardInterrupt:

@@ -97,3 +97,11 @@ NUM_CPU = os.cpu_count()
 NUM_GPU = int(torch.cuda.device_count()) if torch.cuda.is_available() and not CPU_ONLY else 0
 CPU_PER_RUNNER = int(np.floor(NUM_CPU / NUM_RLRUNNER))
 GPU_PER_RUNNER = 1.0 * NUM_GPU / (NUM_RLRUNNER + 1) if torch.cuda.is_available() and not CPU_ONLY else 0
+
+# Cars-Interface
+GAIN = 1.0
+TRIM = 0.0
+RADIUS = 0.0318
+K = 27.0
+LIMIT = 1.0 
+WHEEL_DIST = 0.102
