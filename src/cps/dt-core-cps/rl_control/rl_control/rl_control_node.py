@@ -146,14 +146,17 @@ class RLControl(Node):
 
         # transfer to wheel cmd
         def action_to_wheel(action):
+            SPEED_FACTOR = 0.6
+            ANGLE_FACTOR = 4
+
             vel, angle = action
             # Distance between the wheels
             # assuming same motor constants k for both motors
             # adjusting k by gain and trim
             k_r_inv = (GAIN + TRIM) / K
             k_l_inv = (GAIN - TRIM) / K
-            omega_r = (vel + 0.5 * angle * WHEEL_DIST) / RADIUS
-            omega_l = (vel - 0.5 * angle * WHEEL_DIST) / RADIUS
+            omega_r = (vel * SPEED_FACTOR + 0.5 * angle * WHEEL_DIST * ANGLE_FACTOR) / RADIUS
+            omega_l = (vel * SPEED_FACTOR - 0.5 * angle * WHEEL_DIST * ANGLE_FACTOR) / RADIUS
             # conversion from motor rotation rate to duty cycle
             u_r = omega_r * k_r_inv
             u_l = omega_l * k_l_inv
