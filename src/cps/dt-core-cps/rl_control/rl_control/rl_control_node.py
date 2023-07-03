@@ -91,7 +91,7 @@ class RLControl(Node):
 
     def _img_callback(self, data):
         self.get_logger().info(f'point 1: entry')
-        self.get_logger().info(f'point 2: lock')
+        # self.get_logger().info(f'point 2: lock')
         try:
             frame = np.fromstring(bytes(data.data), np.uint8)
             self.get_logger().info(f'point 3: new frame')
@@ -99,7 +99,7 @@ class RLControl(Node):
             self.get_logger().info('Camera node is not yet ready...')
 
         # Preprocess
-        self.get_logger().info(f'point 4: pre preprocess')
+        # self.get_logger().info(f'point 4: pre preprocess')
         preprocessed_img = self.preprocess_img(frame)
         self.get_logger().info(f'point 5: after preprocess')
 
@@ -160,7 +160,7 @@ class RLControl(Node):
             # limiting output to limit, which is 1.0 for the duckiebot
             u_r_limited = max(min(u_r, LIMIT), -LIMIT)
             u_l_limited = max(min(u_l, LIMIT), -LIMIT)
-            return u_r_limited, u_r_limited
+            return u_l_limited, u_r_limited
 
         vel_left, vel_right = action_to_wheel(action)
         msg = WheelsCmdStamped()

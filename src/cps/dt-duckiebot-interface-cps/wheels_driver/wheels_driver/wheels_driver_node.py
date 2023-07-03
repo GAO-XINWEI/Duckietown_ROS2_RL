@@ -75,7 +75,7 @@ class WheelsDriverNode(Node):
             vel_left = msg.vel_left
             vel_right = msg.vel_right
 
-        self.driver.set_wheels_speed(left=vel_left, right=vel_right)
+        pwml, pwmr = self.driver.set_wheels_speed(left=vel_left, right=vel_right)
         # Put the wheel commands in a message and publish
         self.msg_wheels_cmd.header = msg.header
         # Record the time the command was given to the wheels_driver
@@ -83,6 +83,13 @@ class WheelsDriverNode(Node):
         self.msg_wheels_cmd.vel_left = vel_left
         self.msg_wheels_cmd.vel_right = vel_right
         self.pub_wheels_cmd.publish(self.msg_wheels_cmd)
+
+        if pwml > pwmr:
+            direction_str = 'left '
+        else:
+            direction_str = 'right'
+        self.get_logger().info(f'Motor Speed: {vel_left, vel_right}')
+        self.get_logger().info(f'Motor PWM  : {direction_str}, {pwml, pwmr}')
 
     def estop_cb(self, msg: BoolStamped):
         """

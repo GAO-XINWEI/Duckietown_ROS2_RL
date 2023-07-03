@@ -18,6 +18,10 @@ class DaguWheelsDriver:
     RIGHT_MOTOR_MIN_PWM = 60    #: Minimum speed for right motor
     RIGHT_MOTOR_MAX_PWM = 255   #: Maximum speed for right motor
     SPEED_TOLERANCE = 1.e-2     #: Speed tolerance level
+    # LEFT_MOTOR_MIN_PWM = 40     #: Minimum speed for left motor
+    # LEFT_MOTOR_MAX_PWM = 170    #: Maximum speed for left motor
+    # RIGHT_MOTOR_MIN_PWM = 40    #: Minimum speed for right motor
+    # RIGHT_MOTOR_MAX_PWM = 170   #: Maximum speed for right motor
 
     def __init__(self) -> None:
         rcfg = get_robot_configuration()
@@ -29,9 +33,9 @@ class DaguWheelsDriver:
         # print out some stats
         # this = self.__class__.__name__
         # print(f"[{this}] Running in configuration `{rcfg.name}`,\
-            # using driver `{DTHAT.__name__}`")
-        print(f"Motor #1: {self.leftMotor}")
-        print(f"Motor #2: {self.rightMotor}")
+        #     using driver `{DTHAT.__name__}`")
+        # print(f"Motor #1: {self.leftMotor}")
+        # print(f"Motor #2: {self.rightMotor}")
 
         # initialize state
         self.leftSpeed = 0.0
@@ -48,7 +52,8 @@ class DaguWheelsDriver:
         """
         self.leftSpeed = left
         self.rightSpeed = right
-        self._pwm_update()
+        pwml, pwmr = self._pwm_update()
+        return pwml, pwmr
 
     def _pwm_value(self, v, min_pwm, max_pwm):
         """Transforms the requested speed into an int8 number.
@@ -94,6 +99,7 @@ class DaguWheelsDriver:
 
         self.leftMotor.set(leftMotorMode, pwml)
         self.rightMotor.set(rightMotorMode, pwmr)
+        return pwml, pwmr
 
     def __del__(self):
         """Destructor method.
