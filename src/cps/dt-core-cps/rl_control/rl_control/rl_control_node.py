@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-
 import os
 import re
 import cv2
@@ -19,10 +18,9 @@ from cv_bridge import CvBridge
 from sensor_msgs.msg import Image
 from sensor_msgs.msg import CompressedImage
 
-
 from threading import Event, Lock, Thread
-from rl_control.ACNet import ACNet
 from rl_control.Parameters import *
+from rl_control.ACNet import ACNet
 from dt_interfaces_cps.msg import WheelsCmdStamped
 from dt_rl_interfaces_cps.msg import ActionFloat32Array2, ActionFloat32
 
@@ -37,37 +35,48 @@ class RLControl(Node):
         # CV Bridge
         self.bridge = CvBridge()
         self.last_frame = None
-        
+        # Check the cuda
+        self.get_logger().info(f'cuda available: {torch.cuda.is_available()}')
+
         # Load parameters
         self.params = {}
         self.declare_parameter('veh')
-        self.declare_parameter('model')
-        self.declare_parameter('device')
         self.declare_parameter('model_path')
+        self.declare_parameter('model')
+        self.declare_parameter('quantized_model')
+        self.declare_parameter('device')
+        self.declare_parameter('quantize')
         self.params["veh"] = self.get_parameter("veh").get_parameter_value().string_value
-        self.params["model"] = self.get_parameter("model").get_parameter_value().string_value
-        self.params["device"] = self.get_parameter("device").get_parameter_value().string_value
         self.params["model_path"] = self.get_parameter("model_path").get_parameter_value().string_value
-        self.get_logger().info(f'Load parameters: device: {self.params["device"]}')
-
+        self.params["model"] = self.get_parameter("model").get_parameter_value().string_value
+        self.params["quantized_model"] = self.get_parameter("quantized_model").get_parameter_value().string_value
+        self.params["device"] = self.get_parameter("device").get_parameter_value().string_value
+        self.params["quantize"] = self.get_parameter("quantize").get_parameter_value().string_value
+        self.get_logger().info(f'Load parameters: device: {self.params["device"]}; quantize: {self.params["quantize"]}.')
         # Load Network
-        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        if self.params["device"] == 'cpu' or self.params["quantize"] == 'T' or not torch.cuda.is_available():
+            self.device = torch.device('cpu')
+        else:
+            self.device = torch.device('cuda')
+
+        # self.device = torch.device('cuda:0' if torch.cuda.is_available() and self.params["device"] is not 'cpu' and not self.params["bool_quantized"] else 'cpu')
         self.get_logger().info(f'Try to load with device: {self.device}')
-        checkpoint = torch.load(self.params["model_path"] + "/" + self.params["model"], map_location=self.device)
-        self.model = ACNet(ACTION_SIZE, self.device).to(self.device)
-        self.model.load_state_dict(checkpoint['model_state_dict'])
+        if self.params["quantize"] == 'T':
+            self.get_logger().info(f'quantized_model')
+            self.model = torch.load(self.params["model_path"] + "/" + 'quantized_model.pt', map_location=self.device)
+        else:
+            checkpoint = torch.load(self.params["model_path"] + "/" + self.params["model"], map_location=self.device)
+            self.model = ACNet(ACTION_SIZE, self.device).to(self.device)
+            self.model.load_state_dict(checkpoint['model_state_dict'])
         self.model.eval()
         self.get_logger().info(f'Network loaded. Using device: {self.device}')
-        # Additional Info when using cuda
-        if self.device.type == 'cuda':
-            self.get_logger().info(torch.cuda.get_device_name(0))
 
         # todo: 10 times input
         self.get_logger().info(f'Ready to input.')
-        test_tensor = 255 * np.random.random(size=(1, 3, 30, 40))
+        self.input = torch.tensor(255 * np.random.random(size=(1, 3, 30, 40)), dtype=torch.float32).to(self.device)
         for i in range(10):
             with torch.no_grad():
-                _, _, _, _, _ = self.model(torch.tensor(test_tensor, dtype=torch.float32).to(self.device), lstm_state=None, old_action=None)
+                _, _, _, _, _ = self.model(self.input, lstm_state=None, old_action=None)
             self.get_logger().info(f'Run {i} times input done!')
 
         # Subscribers
@@ -91,25 +100,23 @@ class RLControl(Node):
 
     def _img_callback(self, data):
         self.get_logger().info(f'point 1: entry')
-        # self.get_logger().info(f'point 2: lock')
         try:
             frame = np.fromstring(bytes(data.data), np.uint8)
-            self.get_logger().info(f'point 3: new frame')
+            self.get_logger().info(f'point 2: new frame')
         except AttributeError:
             self.get_logger().info('Camera node is not yet ready...')
 
         # Preprocess
-        # self.get_logger().info(f'point 4: pre preprocess')
         preprocessed_img = self.preprocess_img(frame)
-        self.get_logger().info(f'point 5: after preprocess')
+        self.get_logger().info(f'point 3: after preprocess')
 
         # Infer Action
         action = self.infer_action(preprocessed_img)
-        self.get_logger().info(f'point 6: action infered')
+        self.get_logger().info(f'point 4: action infered')
                 
         # Publish Message
         self.publish_control_msg(action)
-        self.get_logger().info('Action published')
+        self.get_logger().info('point 5: Action published')
 
     
     def trans_state(self, obs):
@@ -117,7 +124,6 @@ class RLControl(Node):
     
     def preprocess_img(self, frame):
         # transfer and input
-        self.get_logger().info(f'preprocess_img()')
         frame = cv2.imdecode(frame, cv2.IMREAD_COLOR)
         states = self.trans_state(frame)
         return states
@@ -128,14 +134,12 @@ class RLControl(Node):
             actions, _, lstm_states, _, _ = self.model(states.to(self.device), lstm_state=lstm_states, old_action=None)
         action = actions.cpu().data.numpy().flatten()
         action = np.clip(action, -1, 1)
-        self.get_logger().info(f'infer action is: {action}')
+        # self.get_logger().info(f'infer action is: {action}')
         vel, angle = action
         return [vel, angle]
         
     def publish_control_msg(self, action):
         """Publishes the output of the model as a control message."""
-        self.get_logger().info(f'publish_control_msg()')
-
         vel, angle = action
         vel_left, vel_right = ActionFloat32(), ActionFloat32()
         vel_left.data, vel_right.data = [float(vel)], [float(angle)]
