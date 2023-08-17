@@ -20,7 +20,6 @@ from sensor_msgs.msg import CompressedImage
 
 from threading import Event, Lock, Thread
 from rl_control.Parameters import *
-from rl_control.ACNet import ACNet
 from dt_interfaces_cps.msg import WheelsCmdStamped
 from dt_rl_interfaces_cps.msg import ActionFloat32Array2, ActionFloat32
 
@@ -63,11 +62,18 @@ class RLControl(Node):
         self.get_logger().info(f'Try to load with device: {self.device}')
         if self.params["quantize"] == 'T':
             self.get_logger().info(f'quantized_model')
-            self.model = torch.load(self.params["model_path"] + "/" + 'quantized_model.pt', map_location=self.device)
-        else:
-            checkpoint = torch.load(self.params["model_path"] + "/" + self.params["model"], map_location=self.device)
+            self.model = torch.load(self.params["model_path"] + 'quantized_model.pt', map_location=self.device)
+        elif self.params["discrete"] == 'F':
+            from rl_control.ACNet_continuous import ACNet
+            checkpoint = torch.load(self.params["model_path"] + self.params["model"], map_location=self.device)
             self.model = ACNet(ACTION_SIZE, self.device).to(self.device)
             self.model.load_state_dict(checkpoint['model_state_dict'])
+        else:
+            from rl_control.ACNet_discrete import ACNet
+            checkpoint = torch.load(self.params["model_path"] + self.params["model"], map_location=self.device)
+            self.model = ACNet(ACTION_SIZE, self.device).to(self.device)
+            self.model.load_state_dict(checkpoint['model_state_dict'])
+
         self.model.eval()
         self.get_logger().info(f'Network loaded. Using device: {self.device}')
 
@@ -111,7 +117,10 @@ class RLControl(Node):
         self.get_logger().info(f'point 3: after preprocess')
 
         # Infer Action
-        action = self.infer_action(preprocessed_img)
+        if self.params["discrete"] == 'F':
+            action = self.infer_action_continuous(preprocessed_img)
+        else:
+            action = self.infer_action_discrete(preprocessed_img)
         self.get_logger().info(f'point 4: action infered')
                 
         # Publish Message
@@ -128,11 +137,42 @@ class RLControl(Node):
         states = self.trans_state(frame)
         return states
 
-    def infer_action(self, states):
-        lstm_states = None
+    def infer_action_continuous(self, states):
         with torch.no_grad():
-            actions, _, lstm_states, _, _ = self.model(states.to(self.device), lstm_state=lstm_states, old_action=None)
+            actions, _, _, _, _ = self.model(states.to(self.device), lstm_state=None, old_action=None)
         action = actions.cpu().data.numpy().flatten()
+        action = np.clip(action, -1, 1)
+        # self.get_logger().info(f'infer action is: {action}')
+        vel, angle = action
+        return [vel, angle]
+    
+    def infer_action_discrete(self, states):
+        with torch.no_grad():
+            actions, _, _, _, _ = self.model(states.to(self.device), lstm_state=None, old_action=None)
+        action = actions.cpu().data.numpy().flatten()
+        def return_vel_steer(u_r,u_l):
+            GAIN = 1.0
+            TRIM = 0.0
+            RADIUS = 0.0318
+            K = 27.0
+            LIMIT = 1.0 
+            WHEEL_DIST = 0.102
+            k_r = K
+            k_l = K
+            k_r_inv = (GAIN + TRIM)/k_r
+            k_l_inv = (GAIN - TRIM)/k_l
+            w_r  = u_r/k_r_inv
+            w_l  = u_l/k_l_inv
+            b    = WHEEL_DIST
+            vel   = (w_r + w_l)*RADIUS/2
+            angle = (w_r - w_l)*RADIUS/b
+            return np.array([vel,angle])
+        if action[0] == 0:
+            action = return_vel_steer(0.4,0.04)
+        if action[0] == 1:
+            action = return_vel_steer(0.04,0.4)
+        if action[0] == 2:
+            action = return_vel_steer(0.3,0.3)
         action = np.clip(action, -1, 1)
         # self.get_logger().info(f'infer action is: {action}')
         vel, angle = action

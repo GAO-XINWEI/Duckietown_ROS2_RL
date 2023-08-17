@@ -1,13 +1,14 @@
 <?xml version='1.0'?>
 <launch>
     <arg name="veh" default="safeduckie3"/>
-    <arg name="model_path" default="/home/duckie/dt_ws/src/cps/dt-core-cps/rl_control/rl_control"/>
+    <arg name="model_path" default="/home/duckie/dt_ws/src/cps/dt-core-cps/rl_control/rl_control/model/"/>
     <arg name="model" default="checkpoint.pkl"/>
     <arg name="quantized_model" default="quantized_model.pt"/>
 
     <!-- Experiment Parameters -->
     <arg name="device" default="cpu"/>
     <arg name="quantize" default="F"/>
+    <arg name="discrete" default="F"/>
 
     <!-- rl_control Package -->
     <node pkg="rl_control" exec="rl_control_node" name="rl_control_node" 
