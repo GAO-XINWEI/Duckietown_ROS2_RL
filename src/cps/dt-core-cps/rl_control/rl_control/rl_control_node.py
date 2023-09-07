@@ -45,13 +45,15 @@ class RLControl(Node):
         self.declare_parameter('quantized_model')
         self.declare_parameter('device')
         self.declare_parameter('quantize')
+        self.declare_parameter('discrete')
         self.params["veh"] = self.get_parameter("veh").get_parameter_value().string_value
         self.params["model_path"] = self.get_parameter("model_path").get_parameter_value().string_value
         self.params["model"] = self.get_parameter("model").get_parameter_value().string_value
         self.params["quantized_model"] = self.get_parameter("quantized_model").get_parameter_value().string_value
         self.params["device"] = self.get_parameter("device").get_parameter_value().string_value
         self.params["quantize"] = self.get_parameter("quantize").get_parameter_value().string_value
-        self.get_logger().info(f'Load parameters: device: {self.params["device"]}; quantize: {self.params["quantize"]}.')
+        self.params["discrete"] = self.get_parameter("discrete").get_parameter_value().string_value
+        self.get_logger().info(f'Load parameters: device: {self.params["device"]}; quantize: {self.params["quantize"]}; discrete: {self.params["discrete"]}.')
         # Load Network
         if self.params["device"] == 'cpu' or self.params["quantize"] == 'T' or not torch.cuda.is_available():
             self.device = torch.device('cpu')
@@ -60,6 +62,7 @@ class RLControl(Node):
 
         # self.device = torch.device('cuda:0' if torch.cuda.is_available() and self.params["device"] is not 'cpu' and not self.params["bool_quantized"] else 'cpu')
         self.get_logger().info(f'Try to load with device: {self.device}')
+
         if self.params["quantize"] == 'T':
             self.get_logger().info(f'quantized_model')
             self.model = torch.load(self.params["model_path"] + 'quantized_model.pt', map_location=self.device)
@@ -190,8 +193,12 @@ class RLControl(Node):
 
         # transfer to wheel cmd
         def action_to_wheel(action):
-            SPEED_FACTOR = 0.6
+            # Soc 1
+            SPEED_FACTOR = 0.8
             ANGLE_FACTOR = 4
+            # Soc 2
+            # SPEED_FACTOR = 0.6
+            # ANGLE_FACTOR = 4
 
             vel, angle = action
             # Distance between the wheels

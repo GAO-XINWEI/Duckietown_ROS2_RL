@@ -1,11 +1,3 @@
-"""
-version goal: loop; reward; delete;
-    -[v] loop check
-    -[v] reward test
-    -[] delete
-    -[v] avg reward show
-    -[v] overfitting?
-"""
 import torch
 import os
 import numpy as np
@@ -19,8 +11,6 @@ SINGLE_DEBUG_MODE = True
 # Version
 train_version = '05_31_sgm1_rwd2101_en2_lr1_gm90_kep2_1024'
 load_version = '05_22_sgm1_rwd211_en2_lr1_gm90_kep2_1024'
-#'03_28_sgm1_b"rwd4151_clp2sgm_0en2_lr2_gm90_gre0_kep2_drop0'
-#'02_13_ppobuf_reward1_num3_step1_epoch1_lr2_gama90_greedy2_angle'
 # (do not change)
 project_name = 'Duckie_RL_00'
 train_model_path = 'log/' + train_version + '/model'
