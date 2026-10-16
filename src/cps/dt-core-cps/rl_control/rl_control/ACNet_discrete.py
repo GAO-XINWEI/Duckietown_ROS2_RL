@@ -84,7 +84,7 @@ class ACNet(nn.Module):
         shared_full = self.shared_full(conv.view(conv.size(0), -1))
         shared_lstm = shared_full
         # actor
-        output_network = ACTOR_MEAN_FACTOR * nn.functional.softmax(self.actor_mu(self.actor_full(shared_lstm))/ACTOR_MEAN_FACTOR) #Gangadhar modified here
+        output_network = ACTOR_MEAN_FACTOR * nn.functional.softmax(self.actor_mu(self.actor_full(shared_lstm))/ACTOR_MEAN_FACTOR)
 
         # critic
         state_value = CITIC_NET_FACTOR * self.critic_full(shared_lstm)
