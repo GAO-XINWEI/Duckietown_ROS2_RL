@@ -1,15 +1,14 @@
-# ACNet image/action dataset recording (ROS2 Foxy / Jetson Nano)
+# Save ACNet network-input PNG + action + timestamps
 
-Recording is **disabled by default**. Each admitted record comes directly from one
-camera callback: the exact compressed image used for inference, the returned
-`(vel, angle)` and the actual published `(left, right)` wheel values. No temporal
-matching is performed. Inference, preprocessing, discrete-action mapping, wheel
-conversion, limits and publication order are unchanged. `Parameters.py` was read
-and its motor constants are recorded in metadata; no training parameters change.
+Recording is disabled by default. Each saved record contains only the PNG of the
+actual preprocessed network input, the corresponding ACNet `(vel, angle)`, and
+camera/action timestamps. It is paired inside the same camera callback, after
+inference and both existing publications succeed. No timestamp matching is used.
+Wheel commands and original full-resolution camera photos are not recorded.
 
-## Build and enable
+## Enable on ROS2 Foxy / Jetson Nano
 
-In the existing Foxy workspace on the Nano, with its normal ROS and model dependencies:
+Build in your existing workspace with the normal model/ROS dependencies:
 
 ```sh
 colcon build --packages-select rl_control --symlink-install
@@ -19,129 +18,113 @@ ros2 launch rl_control rl_control_node.launch.xml \
   dataset_directory:=/home/duckie/duckietown_dataset
 ```
 
-Retain your existing `model_path`, `model`, `device`, `quantize` and `discrete`
-launch arguments as appropriate. The default launch still starts the controller
-with its existing model/vehicle defaults. Set `dataset_enabled:=false` to disable
-recording, with no writer thread, dataset directory or extra image codec work.
-Parameters are read at startup; restart to change them.
+Keep your existing model/device/discrete launch arguments. Set
+`dataset_enabled:=false` to disable all dataset work. Startup-only settings:
 
-| Launch argument / ROS parameter | Default | Meaning |
+| Parameter / launch argument | Default | Meaning |
 | --- | --- | --- |
-| `dataset_enabled` | `false` | Opt in to recording |
-| `dataset_directory` | `/home/duckie/duckietown_dataset` in launch; `~/duckietown_dataset` directly | Parent directory; a unique UTC + random run directory is always created |
-| `dataset_queue_size` | `32` | Maximum pending records; newest is dropped when full |
-| `dataset_image_format` | `original` | Copy original JPEG/PNG bytes; `png` requests background decode and PNG encoding |
-| `dataset_max_image_bytes` | `4194304` | Reject empty or oversized payloads before queueing |
+| `dataset_enabled` | `false` | Enable recording |
+| `dataset_directory` | `/home/duckie/duckietown_dataset` in launch; `~/duckietown_dataset` directly | Parent of independent UTC + random run directories |
+| `dataset_queue_size` | `32` | Pending records; drop newest whole record when full |
 
-Example for explicitly requested PNG: append `dataset_image_format:=png`.
-Original JPEG is recommended on Nano: it preserves camera bytes exactly and
-avoids re-encoding. Original mode detects JPEG/PNG by byte signature, independent
-of the ROS `format` string. Other compression types stop recording with an error.
-PNG mode uses the existing OpenCV/NumPy dependencies only in the writer thread.
+## What the PNG represents
 
-## Output and timestamps
+The logger snapshots `preprocessed_img`, the same CPU tensor passed into the
+existing inference method (which copies it to the inference device). It does
+not decode/resize the camera image a second time. Current `STATE_SIZE=(30,40)`
+produces a PNG **40 pixels wide and 30 pixels high**.
+
+The original pipeline produces a 0..255 float32 CHW tensor from uint8 resized
+pixels. In the background worker, values are rounded to the nearest uint8 and
+saved losslessly as PNG. This recovers the pixel levels; PNG does not retain tiny
+float32 arithmetic differences. To reconstruct the input, read PNG as RGB,
+transpose HWC to CHW, cast to float32 and add the batch dimension, without another
+resize, channel swap or multiplication by 255.
+
+Channel identity is preserved: network channels 0/1/2 are PNG R/G/B. The original
+code feeds OpenCV BGR into ToPILImage without swapping colors, so these channels
+correspond to camera B/G/R. A normal PNG viewer can therefore show swapped colors
+relative to the camera photo. This deliberately preserves what the network saw;
+the controller's preprocessing and inference are unchanged. When loading with
+OpenCV, convert its default BGR decode to RGB before reconstructing the tensor.
+
+## Output
 
 ```text
-run_20261016T120000Z_<unique>/
-  images/frame_000000000.jpg
+run_<UTC>_<unique>/
+  images/frame_000000000.png
   actions.csv
   metadata.json
 ```
 
-One CSV row per **successfully saved** decision, with columns:
+CSV columns:
 
-- `frame_id`: callback submission sequence within the run (gaps expose drops).
-- `image`: image path relative to the run directory.
-- `camera_timestamp_ns`: unmodified `CompressedImage.header.stamp` as integer ns.
-- `action_timestamp_ns`: the header timestamp of the published `rl/action_cmd`.
-- `wheel_timestamp_ns`: the header timestamp of the published wheel command.
-- `vel`, `angle`: ACNet control action returned by the existing inference method
-  (including its existing clipping/discrete conversion); not wheel duty cycles.
-- `left`, `right`: actual `WheelsCmdStamped.vel_left/vel_right` values after the
-  existing motor conversion and limiting.
+```text
+frame_id,image,camera_timestamp_ns,action_timestamp_ns,vel,angle
+```
 
-The two publication stamps use the node's ROS clock immediately before their
-respective `publish` calls. They do not prove DDS delivery, physical motor
-execution or synchronized camera/node clocks. Camera stamps are preserved even
-if zero or repeated. Do not assume a fixed latency, a fixed frame rate, or that
-adjacent rows are contiguous RL transitions/episodes when IDs have gaps.
+- `image`: relative path to that decision's network-input PNG.
+- `camera_timestamp_ns`: original camera `header.stamp`, in integer ns.
+- `action_timestamp_ns`: the existing action message header stamp, set from the
+  node's ROS clock immediately before publishing `rl/action_cmd`.
+- `vel,angle`: the existing inference method's returned control action (including
+  its existing clipping/discrete conversion).
+- `frame_id`: submission sequence; gaps expose dropped records.
 
-Metadata includes model/vehicle settings, STATE_SIZE, motor constants, clock type,
-queue configuration, completion status and counters. SPEED_FACTOR=0.8 and
-ANGLE_FACTOR=4 remain in the original wheel conversion. Values in the CSV are
-captured from the same published messages, not recomputed by the writer.
+The action timestamp describes publication, not physical motor execution or DDS
+receipt. Camera/node clocks may differ; zero/repeated camera stamps are preserved.
+Metadata stores settings, input shape/channel convention and recording counters.
+No motor constants or wheel data are stored. `Parameters.py` was inspected and
+remains unchanged, as do preprocessing, inference, wheel conversion and limits.
 
-## Backpressure, errors and shutdown
+## Queue, failures and stop
 
-The callback copies camera bytes (already needed for inference), then after both
-publishes succeed submits a small record with `put_nowait`. It performs no disk
-I/O or image encoding. Queue memory is bounded by queue size and payload limit
-(32 x 4 MiB pending by default, plus one worker payload and transient copies;
-PNG encoding also needs a decoded frame). Size this conservatively for Nano.
-The queue does not block waiting for capacity. Python scheduling, byte copying
-and lock contention still have cost; this is not a hard real-time guarantee.
+Only the small network input is copied in the callback. PNG encoding and disk I/O
+run in a bounded background queue. With the current input shape, 32 queued
+float32 snapshots require about 450 KiB, plus worker/encoding overhead. Queue
+submission never waits for capacity; Python scheduling/copy/locks still cost time.
+On overflow the whole newest record is dropped and counted. An admitted record
+gets one image and one CSV row; no row is emitted when inference/publication fails.
 
-If full, **drop the newest whole record**, not its image or action independently.
-No row is produced for inference/publish exceptions or failed image writes. On
-write/codec failure, the writer stops admission and counts queued unsaved records
-as failed; control continues. A first rejected submission warns in the ROS log;
-shutdown prints the counters/error. Startup path/parameter errors disable
-recording with an error message while leaving the controller available.
+Counters in final metadata: `submitted`, `written`, `dropped_full`,
+`dropped_invalid`, `dropped_stopped`, `failed`. After draining, submitted equals
+the sum of written and dropped/failed records. Disk/encoding failure stops
+recording, counts unsaved queued records and leaves control running. Startup
+recording errors disable the logger with a ROS error message. A first rejected
+submission warns; shutdown prints the final counters/error.
 
-Counters: `submitted`, `written`, `dropped_full`, `dropped_invalid`,
-`dropped_stopped`, `failed`. After a normal drain, submitted equals written plus
-all dropped/failed records. Each image is atomically renamed before its CSV row
-is appended and flushed. On a write exception temporary/current image files are
-removed where possible. CSV and image files are not a transactional database:
-process/power loss may leave orphan images or a partial last CSV row. Flush is
-not fsync; recordings are not guaranteed against power loss.
+On Ctrl-C, destroy ROS resources first and drain recording for at most five
+seconds. Slow/hung storage cannot indefinitely block exit. `closed` or `error`
+metadata is finalized by the writer after draining; `recording` at exit means an
+incomplete run. Image rename precedes CSV append/flush. Power/process loss can
+leave orphan images, a partial last row or lost pending data; files are not a
+transactional database and flush is not fsync. Validate incomplete runs before use.
 
-On Ctrl-C, ROS resources are destroyed first, then the writer stops accepting
-records and drains for at most 5 seconds. Repeated close is safe. A slow/hung disk
-may outlast this timeout; the daemon writer cannot block process exit. Such a run
-can have lost pending records and metadata still marked `recording`. Final
-`closed`/`error` metadata is written by the worker only after its drain. Treat
-anything else as incomplete and validate files before training.
+## Verification
 
-## Validation and hardware safety
-
-Run the hardware-free tests from the repository root (Python 3.8+):
+With NumPy and Pillow available (already used by the existing torchvision stack):
 
 ```sh
 python3 -m unittest discover \
   -s src/cps/dt-core-cps/rl_control/test -p test_dataset_logger.py -v
 ```
 
-They exercise byte preservation, direct image/action pairing and exact stamps,
-unique directories, queue overflow, bounded/repeated close, oversized payloads,
-invalid compression, disk/CSV failure, actual published wheel values, and no
-record when publishing fails. They use fake publishers and never import ROS,
-Torch, Jetson.GPIO or motor drivers. They do not establish real Nano timing.
+Six hardware-free tests check exact network-pixel PNG round-trip including channel
+order and dimensions, timestamps/action pairing, snapshot ownership, background
+encoding, unique runs, overflow, bounded/repeated stop, invalid input shape,
+disk/CSV failure and no record after failed publication. Fake publishers avoid
+importing ROS, Torch or GPIO. Static comparison also verifies the original
+preprocessing, inference and wheel conversion methods are unchanged.
 
-On the Nano, first validate with wheels lifted and an available emergency stop,
-or replay a short bag in an isolated ROS namespace with **no motor driver
-subscriber**. The controller publishes real wheel commands when started; changing
-the namespace alone is not a substitute for isolating/remapping hardware topics.
-This change neither touches GPIO nor changes the original controller's shutdown
-motor behavior. Do not rely on the logger or node exit as a motor stop; use your
-existing safety controller/emergency stop.
+Before recording on Nano, verify with lifted wheels and an emergency stop, or
+isolated replay with no motor-driver subscriber. The existing controller publishes
+real motor commands. This logger does not touch GPIO or add a motor-stop guarantee;
+use the existing safety controller/emergency stop before shutting down the node.
 
-1. Run once disabled and once enabled with the same existing launch/model settings.
-   Confirm identical inference and motor behavior; compare callback timing and
-   dropped counters under sustained load on the Nano.
-2. Stop safely, then Ctrl-C. Require `metadata.json` status `closed`, and verify
-   every CSV image exists, every image has a corresponding row, IDs are unique,
-   and the written count equals CSV row count. Preserve ns columns as integers.
-3. Replay known JPEG messages with unique header stamps and distinct pixel content;
-   compare saved bytes to the original `CompressedImage.data` and CSV values to
-   both observed published messages. Repeat for discrete/continuous modes you use.
-4. Stress with `dataset_queue_size:=1` and PNG or slow storage. Expect whole-record
-   drops and ID gaps, without shifted image/action pairing. Check memory/timing
-   on the Nano before using recordings in an experiment.
-5. Check startup with an unwritable destination and simulate full storage in an
-   isolated test setup. Confirm recording reports failure and control remains
-   responsive. Forced termination should be recognized as an incomplete run.
-
-Retain ROS bags when raw topic history is required. This dataset contains only
-camera images actually processed into successfully published decisions, subject
-to explicit storage/backpressure losses.
+Run enabled/disabled with identical model settings and compare timing/behavior.
+After safe stop, require metadata `closed`, check `written` equals CSV row count,
+and check every CSV image exists with size 40x30 and a unique frame ID. Replay
+known inputs and compare PNG pixels to the rounded tensor passed to inference,
+and CSV action/stamp to `rl/action_cmd`. Stress `dataset_queue_size:=1` with slow
+storage: expect whole-record drops and ID gaps, never shifted image/action pairs.
+ROS2 Foxy/Jetson hardware timing is not validated by the offline tests.

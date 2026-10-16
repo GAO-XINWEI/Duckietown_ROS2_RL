@@ -4,10 +4,11 @@ import csv
 import importlib.util
 import json
 from pathlib import Path
-import sys
 import tempfile
 import threading
 import types
+import numpy as np
+from PIL import Image
 import unittest
 from unittest.mock import patch
 
@@ -17,8 +18,8 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 DatasetLogger = module.DatasetLogger
 JPEG = b'\xff\xd8\xfforiginal camera bytes'
-PUBLICATION = dict(vel=0.2, angle=-0.1, left=0.15, right=0.05,
-                   action_timestamp_ns=200, wheel_timestamp_ns=201)
+INPUT = (np.arange(3 * 30 * 40, dtype=np.float32) % 256).reshape(3, 30, 40)
+PUBLICATION = dict(vel=0.2, angle=-0.1, action_timestamp_ns=200)
 
 
 class RecorderTests(unittest.TestCase):
@@ -34,22 +35,23 @@ class RecorderTests(unittest.TestCase):
     def test_pairing_bytes_timestamps_and_unique_run(self):
         logger = self.logger()
         for i in range(3):
-            self.assertTrue(logger.submit(JPEG, 100 + i, dict(PUBLICATION, vel=i)))
+            self.assertTrue(logger.submit(INPUT, 100 + i, dict(PUBLICATION, vel=i)))
         self.assertTrue(logger.close())
         with (logger.run_dir / 'actions.csv').open() as stream:
             rows = list(csv.DictReader(stream))
         self.assertEqual(len(rows), 3)
         for i, row in enumerate(rows):
-            self.assertEqual((logger.run_dir / row['image']).read_bytes(), JPEG)
+            with Image.open(logger.run_dir / row['image']) as image:
+                self.assertEqual(image.size, (40, 30))
+                np.testing.assert_array_equal(np.asarray(image).transpose(2, 0, 1), INPUT)
             self.assertEqual(int(row['camera_timestamp_ns']), 100 + i)
             self.assertEqual(float(row['vel']), i)
             self.assertEqual(int(row['action_timestamp_ns']), 200)
-            self.assertEqual(int(row['wheel_timestamp_ns']), 201)
         info = json.loads((logger.run_dir / 'metadata.json').read_text())
         self.assertEqual(info['written'], 3)
         self.assertEqual(info['status'], 'closed')
         self.assertNotEqual(logger.run_dir, self.logger().run_dir)
-        self.assertFalse(logger.submit(JPEG, 0, PUBLICATION))
+        self.assertFalse(logger.submit(INPUT, 0, PUBLICATION))
         self.assertTrue(logger.close())
 
     def test_overflow_and_bounded_shutdown(self):
@@ -62,10 +64,10 @@ class RecorderTests(unittest.TestCase):
             original(*args)
         with patch.object(logger, '_save', slow_save):
             try:
-                logger.submit(JPEG, 1, PUBLICATION)
+                logger.submit(INPUT, 1, PUBLICATION)
                 self.assertTrue(entered.wait(1))
-                self.assertTrue(logger.submit(JPEG, 2, PUBLICATION))
-                self.assertFalse(logger.submit(JPEG, 3, PUBLICATION))
+                self.assertTrue(logger.submit(INPUT, 2, PUBLICATION))
+                self.assertFalse(logger.submit(INPUT, 3, PUBLICATION))
                 self.assertFalse(logger.close(timeout=0.01))
             finally:
                 release.set()
@@ -76,37 +78,39 @@ class RecorderTests(unittest.TestCase):
     def test_disk_failure_does_not_escape_or_leave_image(self):
         logger = self.logger()
         with patch.object(logger.writer, 'writerow', side_effect=OSError('disk full')):
-            logger.submit(JPEG, 1, PUBLICATION)
+            logger.submit(INPUT, 1, PUBLICATION)
             self.assertTrue(logger.close())
         self.assertEqual(list((logger.run_dir / 'images').iterdir()), [])
         self.assertEqual(logger.snapshot()['failed'], 1)
         self.assertIn('disk full', logger.snapshot()['error'])
-        self.assertFalse(logger.submit(JPEG, 2, PUBLICATION))
+        self.assertFalse(logger.submit(INPUT, 2, PUBLICATION))
 
-    def test_png_encoding_runs_on_writer_thread(self):
-        logger = self.logger(image_format='png')
-        threads = []
-        def decode(*args):
+    def test_png_encoding_runs_on_writer_thread_and_owns_snapshot(self):
+        logger = self.logger()
+        threads, entered, release = [], threading.Event(), threading.Event()
+        original = Image.Image.save
+        def save(image, *args, **kwargs):
             threads.append(threading.current_thread().name)
-            return object()
-        cv = types.SimpleNamespace(
-            IMREAD_COLOR=1, imdecode=decode,
-            imencode=lambda *args: (True, types.SimpleNamespace(tobytes=lambda: b'encoded png')))
-        np = types.SimpleNamespace(frombuffer=lambda *args, **kwargs: object(), uint8=object())
-        with patch.dict(sys.modules, {'cv2': cv, 'numpy': np}):
-            self.assertTrue(logger.submit(JPEG, 1, PUBLICATION))
-            self.assertTrue(logger.close())
+            entered.set()
+            release.wait(3)
+            return original(image, *args, **kwargs)
+        source = INPUT.copy()
+        with patch.object(Image.Image, 'save', save):
+            try:
+                self.assertTrue(logger.submit(source, 1, PUBLICATION))
+                source[:] = 0
+                self.assertTrue(entered.wait(1))
+            finally:
+                release.set()
+                self.assertTrue(logger.close())
         self.assertEqual(threads, ['dataset-writer'])
-        self.assertEqual((logger.run_dir / 'images/frame_000000000.png').read_bytes(), b'encoded png')
+        with Image.open(logger.run_dir / 'images/frame_000000000.png') as image:
+            np.testing.assert_array_equal(np.asarray(image).transpose(2, 0, 1), INPUT)
 
-    def test_invalid_size_and_format(self):
-        logger = self.logger(max_image_bytes=5)
-        self.assertFalse(logger.submit(JPEG, 1, PUBLICATION))
+    def test_invalid_shape(self):
+        logger = self.logger()
+        self.assertFalse(logger.submit(np.zeros((3, 480, 640)), 1, PUBLICATION))
         self.assertEqual(logger.snapshot()['dropped_invalid'], 1)
-        other = self.logger()
-        other.submit(b'unsupported', 1, PUBLICATION)
-        self.assertTrue(other.close())
-        self.assertEqual(other.snapshot()['failed'], 1)
         with self.assertRaises(ValueError):
             self.logger(queue_size=0)
 
@@ -143,11 +147,9 @@ class ControlTests(unittest.TestCase):
         result = namespace['publish_control_msg'](fake, [0.2, -0.1])
         self.assertEqual(len(published), 2)
         self.assertEqual(published[0].data[0].data, [0.2])
-        self.assertEqual(result['left'], published[1].vel_left)
-        self.assertEqual(result['right'], published[1].vel_right)
-        self.assertAlmostEqual(result['left'], (0.2*0.8+0.5*0.1*0.102*4)/0.0318*0.5/27)
+        self.assertEqual(set(result), {'vel', 'angle', 'action_timestamp_ns'})
+        self.assertAlmostEqual(published[1].vel_left, (0.2*0.8+0.5*0.1*0.102*4)/0.0318*0.5/27)
         self.assertEqual(result['action_timestamp_ns'], 200)
-        self.assertEqual(result['wheel_timestamp_ns'], 201)
         class Array:
             @staticmethod
             def fromstring(value, dtype):
@@ -158,14 +160,20 @@ class ControlTests(unittest.TestCase):
         records = []
         fake.params = {'discrete': 'F'}
         fake.get_logger = lambda: types.SimpleNamespace(info=lambda _: None)
-        fake.preprocess_img = lambda image: image
+        tensor = types.SimpleNamespace()
+        tensor.detach = lambda: tensor
+        tensor.cpu = lambda: tensor
+        tensor.numpy = lambda: INPUT[None]
+        fake.preprocess_img = lambda image: tensor
         fake.infer_action_continuous = lambda image: [0.2, -0.1]
         fake.publish_control_msg = lambda action: result
         fake.dataset_logger = types.SimpleNamespace(submit=lambda *args: records.append(args) or True)
         data = types.SimpleNamespace(data=JPEG, header=types.SimpleNamespace(
             stamp=types.SimpleNamespace(sec=1, nanosec=23)))
         dict_ns['_img_callback'](fake, data)
-        self.assertEqual(records, [(JPEG, 1000000023, result)])
+        self.assertEqual(len(records), 1)
+        np.testing.assert_array_equal(records[0][0], INPUT)
+        self.assertEqual(records[0][1:], (1000000023, result))
         fake.dataset_logger = None
         dict_ns['_img_callback'](fake, data)
         self.assertEqual(len(records), 1)

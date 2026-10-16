@@ -10,20 +10,18 @@ from pathlib import Path
 
 
 FIELDS = ('frame_id', 'image', 'camera_timestamp_ns', 'action_timestamp_ns',
-          'wheel_timestamp_ns', 'vel', 'angle', 'left', 'right')
+          'vel', 'angle')
 
 
 class DatasetLogger:
     """Drop newest on overflow; only the worker touches files and image codecs."""
 
-    def __init__(self, directory, queue_size=32, image_format='original',
-                 max_image_bytes=4194304, metadata=None):
-        if queue_size < 1 or max_image_bytes < 1:
-            raise ValueError('queue_size and max_image_bytes must be positive')
-        if image_format not in ('original', 'png'):
-            raise ValueError('image_format must be original or png')
-        self.image_format = image_format
-        self.max_image_bytes = max_image_bytes
+    def __init__(self, directory, queue_size=32, state_size=(30, 40), metadata=None):
+        if queue_size < 1:
+            raise ValueError('queue_size must be positive')
+        self.input_shape = (3, int(state_size[0]), int(state_size[1]))
+        if min(self.input_shape) < 1:
+            raise ValueError('state_size must be positive')
         self.queue = queue.Queue(maxsize=queue_size)
         self.lock = threading.Lock()
         self.stopping = threading.Event()
@@ -32,8 +30,9 @@ class DatasetLogger:
                           dropped_invalid=0, dropped_stopped=0, failed=0)
         self.error = None
         self.metadata = dict(metadata or {})
-        self.metadata.update(schema_version=1, image_format=image_format,
-                             queue_size=queue_size, max_image_bytes=max_image_bytes)
+        self.metadata.update(schema_version=2, image_format='png',
+                             input_shape=list(self.input_shape), queue_size=queue_size,
+                             png_channels='network channel 0, 1, 2 stored as R, G, B')
         name = time.strftime('run_%Y%m%dT%H%M%SZ', time.gmtime()) + '_' + uuid.uuid4().hex[:12]
         self.run_dir = Path(directory).expanduser().resolve() / name
         self.run_dir.mkdir(parents=True, exist_ok=False)
@@ -51,7 +50,7 @@ class DatasetLogger:
         self.worker = threading.Thread(target=self._run, name='dataset-writer', daemon=True)
         self.worker.start()
 
-    def submit(self, image_bytes, camera_timestamp_ns, publication):
+    def submit(self, network_input, camera_timestamp_ns, publication):
         """Snapshot one successful decision. Never wait for disk or queue capacity."""
         with self.lock:
             frame_id = self.stats['submitted']
@@ -59,13 +58,13 @@ class DatasetLogger:
             if self.stopping.is_set():
                 self.stats['dropped_stopped'] += 1
                 return False
-            if not image_bytes or len(image_bytes) > self.max_image_bytes:
+            if tuple(network_input.shape) != self.input_shape:
                 self.stats['dropped_invalid'] += 1
                 return False
             row = dict(publication)
             row.update(frame_id=frame_id, camera_timestamp_ns=camera_timestamp_ns)
             try:
-                self.queue.put_nowait((bytes(image_bytes), row))
+                self.queue.put_nowait((network_input.copy(), row))
             except queue.Full:
                 self.stats['dropped_full'] += 1
                 return False
@@ -89,27 +88,16 @@ class DatasetLogger:
         os.replace(str(temp), str(self.run_dir / 'metadata.json'))
 
     def _save(self, payload, row):
-        if self.image_format == 'png':
-            import cv2
-            import numpy as np
-            decoded = cv2.imdecode(np.frombuffer(payload, dtype=np.uint8), cv2.IMREAD_COLOR)
-            if decoded is None:
-                raise ValueError('Cannot decode camera image')
-            ok, encoded = cv2.imencode('.png', decoded)
-            if not ok:
-                raise ValueError('Cannot encode PNG')
-            payload, extension = encoded.tobytes(), 'png'
-        elif payload.startswith(b'\xff\xd8\xff'):
-            extension = 'jpg'
-        elif payload.startswith(b'\x89PNG\r\n\x1a\n'):
-            extension = 'png'
-        else:
-            raise ValueError('Unsupported compressed image signature')
-        row['image'] = 'images/frame_{:09d}.{}'.format(row['frame_id'], extension)
+        import numpy as np
+        from PIL import Image
+        # Snapshot is the exact CPU CHW float input used by inference (0..255).
+        # Keep channel identity; never re-run preprocessing or swap colors.
+        pixels = np.rint(payload).clip(0, 255).astype(np.uint8).transpose(1, 2, 0)
+        row['image'] = 'images/frame_{:09d}.png'.format(row['frame_id'])
         path = self.run_dir / row['image']
         temp = path.with_suffix(path.suffix + '.tmp')
         try:
-            temp.write_bytes(payload)
+            Image.fromarray(pixels).save(str(temp), format='PNG')
             os.replace(str(temp), str(path))
             self.writer.writerow(row)
             self.csv_file.flush()

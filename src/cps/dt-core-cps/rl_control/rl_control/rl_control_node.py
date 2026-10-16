@@ -95,18 +95,13 @@ class RLControl(Node):
         self.declare_parameter('dataset_enabled', False)
         self.declare_parameter('dataset_directory', '~/duckietown_dataset')
         self.declare_parameter('dataset_queue_size', 32)
-        self.declare_parameter('dataset_image_format', 'original')
-        self.declare_parameter('dataset_max_image_bytes', 4194304)
         if self.get_parameter('dataset_enabled').value:
             try:
                 self.dataset_logger = DatasetLogger(
                     self.get_parameter('dataset_directory').value,
                     queue_size=self.get_parameter('dataset_queue_size').value,
-                    image_format=self.get_parameter('dataset_image_format').value,
-                    max_image_bytes=self.get_parameter('dataset_max_image_bytes').value,
+                    state_size=STATE_SIZE,
                     metadata={'parameters': self.params, 'state_size': list(STATE_SIZE),
-                              'wheel_constants': dict(GAIN=GAIN, TRIM=TRIM, RADIUS=RADIUS,
-                                                     K=K, LIMIT=LIMIT, WHEEL_DIST=WHEEL_DIST),
                               'clock_type': str(self.get_clock().clock_type)})
                 self.get_logger().info('Dataset directory: {}'.format(self.dataset_logger.run_dir))
             except Exception as exc:
@@ -157,7 +152,8 @@ class RLControl(Node):
         if self.dataset_logger is not None:
             try:
                 camera_ns = data.header.stamp.sec * 1000000000 + data.header.stamp.nanosec
-                accepted = self.dataset_logger.submit(image_bytes, camera_ns, publication)
+                accepted = self.dataset_logger.submit(
+                    preprocessed_img.detach().cpu().numpy()[0], camera_ns, publication)
                 if not accepted and not self._dataset_warned:
                     self.get_logger().warning(
                         'Dataset dropped a record; inspect metadata.json counters at shutdown.')
@@ -261,9 +257,8 @@ class RLControl(Node):
         msg.vel_left = float(vel_left)
         msg.vel_right = float(vel_right)
         self.pub_action_motor.publish(msg)
-        return dict(vel=float(vel), angle=float(angle), left=msg.vel_left, right=msg.vel_right,
-                    action_timestamp_ns=action_stamp.sec * 1000000000 + action_stamp.nanosec,
-                    wheel_timestamp_ns=msg.header.stamp.sec * 1000000000 + msg.header.stamp.nanosec)
+        return dict(vel=float(vel), angle=float(angle),
+                    action_timestamp_ns=action_stamp.sec * 1000000000 + action_stamp.nanosec)
 
     def destroy_node(self):
         # Tear down ROS resources before waiting for dataset I/O.
