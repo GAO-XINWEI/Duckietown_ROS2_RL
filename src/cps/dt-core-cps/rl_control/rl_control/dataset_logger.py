@@ -9,16 +9,18 @@ import uuid
 from pathlib import Path
 
 
-FIELDS = ('frame_id', 'image', 'camera_timestamp_ns', 'action_timestamp_ns',
-          'vel', 'angle')
+BASE_FIELDS = ('frame_id', 'image', 'camera_timestamp_ns', 'action_timestamp_ns')
 
 
 class DatasetLogger:
     """Drop newest on overflow; only the worker touches files and image codecs."""
 
-    def __init__(self, directory, queue_size=32, state_size=(30, 40), metadata=None):
+    def __init__(self, directory, queue_size=32, state_size=(30, 40), metadata=None, action_mode='discrete'):
         if queue_size < 1:
             raise ValueError('queue_size must be positive')
+        if action_mode not in ('discrete', 'continuous'):
+            raise ValueError('action_mode must be discrete or continuous')
+        fields = BASE_FIELDS + (('action_id',) if action_mode == 'discrete' else ('vel', 'angle'))
         self.input_shape = (3, int(state_size[0]), int(state_size[1]))
         if min(self.input_shape) < 1:
             raise ValueError('state_size must be positive')
@@ -30,7 +32,7 @@ class DatasetLogger:
                           dropped_invalid=0, dropped_stopped=0, failed=0)
         self.error = None
         self.metadata = dict(metadata or {})
-        self.metadata.update(schema_version=2, image_format='png',
+        self.metadata.update(schema_version=3, image_format='png', action_mode=action_mode,
                              input_shape=list(self.input_shape), queue_size=queue_size,
                              png_channels='network channel 0, 1, 2 stored as R, G, B')
         name = time.strftime('run_%Y%m%dT%H%M%SZ', time.gmtime()) + '_' + uuid.uuid4().hex[:12]
@@ -39,7 +41,7 @@ class DatasetLogger:
         (self.run_dir / 'images').mkdir()
         # Fail before starting control if the destination cannot be opened.
         self.csv_file = (self.run_dir / 'actions.csv').open('w', newline='')
-        self.writer = csv.DictWriter(self.csv_file, fieldnames=FIELDS)
+        self.writer = csv.DictWriter(self.csv_file, fieldnames=fields)
         try:
             self.writer.writeheader()
             self.csv_file.flush()

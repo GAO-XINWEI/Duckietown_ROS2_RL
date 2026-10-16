@@ -1,7 +1,7 @@
 # Save ACNet network-input PNG + action + timestamps
 
 Recording is disabled by default. Each saved record contains only the PNG of the
-actual preprocessed network input, the corresponding ACNet `(vel, angle)`, and
+actual preprocessed network input, the corresponding raw discrete ACNet `action_id` (0, 1 or 2), and
 camera/action timestamps. It is paired inside the same camera callback, after
 inference and both existing publications succeed. No timestamp matching is used.
 Wheel commands and original full-resolution camera photos are not recorded.
@@ -14,11 +14,13 @@ Build in your existing workspace with the normal model/ROS dependencies:
 colcon build --packages-select rl_control --symlink-install
 . install/setup.sh
 ros2 launch rl_control rl_control_node.launch.xml \
-  veh:=safeduckie3 dataset_enabled:=true \
+  veh:=safeduckie3 discrete:=T model:=checkpoint_discrete_zigzag.pkl dataset_enabled:=true \
   dataset_directory:=/home/duckie/duckietown_dataset
 ```
 
-Keep your existing model/device/discrete launch arguments. Set
+Select the discrete checkpoint matching your experiment (the command above is an
+example), and keep your existing model_path/device settings. The original launch
+defaults are unchanged, so explicitly pass `discrete:=T` for your discrete model. Set
 `dataset_enabled:=false` to disable all dataset work. Startup-only settings:
 
 | Parameter / launch argument | Default | Meaning |
@@ -60,15 +62,22 @@ run_<UTC>_<unique>/
 CSV columns:
 
 ```text
-frame_id,image,camera_timestamp_ns,action_timestamp_ns,vel,angle
+frame_id,image,camera_timestamp_ns,action_timestamp_ns,action_id
 ```
 
 - `image`: relative path to that decision's network-input PNG.
 - `camera_timestamp_ns`: original camera `header.stamp`, in integer ns.
 - `action_timestamp_ns`: the existing action message header stamp, set from the
   node's ROS clock immediately before publishing `rl/action_cmd`.
-- `vel,angle`: the existing inference method's returned control action (including
-  its existing clipping/discrete conversion).
+- `action_id`: the exact 0/1/2 output returned by `ACNet_discrete.forward()` for
+  this input, captured before conversion to control values. The network selects
+  this ID using argmax of its three outputs. No second inference is performed.
+  The original controller then maps the ID to `(vel, angle)` for driving; those
+  converted values are not recorded in discrete mode.
+
+For compatibility, if you explicitly run the original continuous mode
+(`discrete:=F`), CSV uses `vel,angle` instead of `action_id`. The metadata records
+which action schema applies. Discrete recordings contain only `action_id`.
 - `frame_id`: submission sequence; gaps expose dropped records.
 
 The action timestamp describes publication, not physical motor execution or DDS
@@ -109,12 +118,14 @@ python3 -m unittest discover \
   -s src/cps/dt-core-cps/rl_control/test -p test_dataset_logger.py -v
 ```
 
-Six hardware-free tests check exact network-pixel PNG round-trip including channel
+Seven hardware-free tests check exact network-pixel PNG round-trip including channel
 order and dimensions, timestamps/action pairing, snapshot ownership, background
 encoding, unique runs, overflow, bounded/repeated stop, invalid input shape,
-disk/CSV failure and no record after failed publication. Fake publishers avoid
-importing ROS, Torch or GPIO. Static comparison also verifies the original
-preprocessing, inference and wheel conversion methods are unchanged.
+disk/CSV failure, all three raw discrete IDs before conversion, unchanged
+converted controls and no record after failed publication. Fake publishers avoid
+importing ROS, Torch or GPIO. Static comparison verifies preprocessing, continuous inference and wheel
+conversion are unchanged; discrete inference adds only a raw-ID snapshot before
+the unchanged conversion.
 
 Before recording on Nano, verify with lifted wheels and an emergency stop, or
 isolated replay with no motor-driver subscriber. The existing controller publishes
@@ -125,6 +136,7 @@ Run enabled/disabled with identical model settings and compare timing/behavior.
 After safe stop, require metadata `closed`, check `written` equals CSV row count,
 and check every CSV image exists with size 40x30 and a unique frame ID. Replay
 known inputs and compare PNG pixels to the rounded tensor passed to inference,
-and CSV action/stamp to `rl/action_cmd`. Stress `dataset_queue_size:=1` with slow
+and CSV action_id to the raw network output before the controller conversion.
+Check action_timestamp_ns against `rl/action_cmd.header.stamp`. Stress `dataset_queue_size:=1` with slow
 storage: expect whole-record drops and ID gaps, never shifted image/action pairs.
 ROS2 Foxy/Jetson hardware timing is not validated by the offline tests.

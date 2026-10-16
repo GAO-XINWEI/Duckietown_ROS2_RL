@@ -101,6 +101,7 @@ class RLControl(Node):
                     self.get_parameter('dataset_directory').value,
                     queue_size=self.get_parameter('dataset_queue_size').value,
                     state_size=STATE_SIZE,
+                    action_mode='continuous' if self.params['discrete'] == 'F' else 'discrete',
                     metadata={'parameters': self.params, 'state_size': list(STATE_SIZE),
                               'clock_type': str(self.get_clock().clock_type)})
                 self.get_logger().info('Dataset directory: {}'.format(self.dataset_logger.run_dir))
@@ -151,6 +152,9 @@ class RLControl(Node):
         publication = self.publish_control_msg(action)
         if self.dataset_logger is not None:
             try:
+                if self.params['discrete'] != 'F':
+                    publication = dict(action_id=self._dataset_action_id,
+                                       action_timestamp_ns=publication['action_timestamp_ns'])
                 camera_ns = data.header.stamp.sec * 1000000000 + data.header.stamp.nanosec
                 accepted = self.dataset_logger.submit(
                     preprocessed_img.detach().cpu().numpy()[0], camera_ns, publication)
@@ -187,6 +191,9 @@ class RLControl(Node):
         with torch.no_grad():
             actions, _, _, _, _ = self.model(states.to(self.device), lstm_state=None, old_action=None)
         action = actions.cpu().data.numpy().flatten()
+        # Capture the exact network output before the existing control mapping.
+        if self.dataset_logger is not None:
+            self._dataset_action_id = int(action[0])
         def return_vel_steer(u_r,u_l):
             GAIN = 1.0
             TRIM = 0.0

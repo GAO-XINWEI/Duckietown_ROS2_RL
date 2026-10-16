@@ -1,6 +1,7 @@
 """Hardware-free tests: python3 -m unittest discover -s test -p test_dataset_logger.py."""
 import ast
 import csv
+from contextlib import nullcontext
 import importlib.util
 import json
 from pathlib import Path
@@ -19,7 +20,7 @@ spec.loader.exec_module(module)
 DatasetLogger = module.DatasetLogger
 JPEG = b'\xff\xd8\xfforiginal camera bytes'
 INPUT = (np.arange(3 * 30 * 40, dtype=np.float32) % 256).reshape(3, 30, 40)
-PUBLICATION = dict(vel=0.2, angle=-0.1, action_timestamp_ns=200)
+PUBLICATION = dict(action_id=2, action_timestamp_ns=200)
 
 
 class RecorderTests(unittest.TestCase):
@@ -32,10 +33,10 @@ class RecorderTests(unittest.TestCase):
         self.addCleanup(logger.close)
         return logger
 
-    def test_pairing_bytes_timestamps_and_unique_run(self):
+    def test_pairing_png_pixels_timestamps_and_unique_run(self):
         logger = self.logger()
         for i in range(3):
-            self.assertTrue(logger.submit(INPUT, 100 + i, dict(PUBLICATION, vel=i)))
+            self.assertTrue(logger.submit(INPUT, 100 + i, dict(PUBLICATION, action_id=i)))
         self.assertTrue(logger.close())
         with (logger.run_dir / 'actions.csv').open() as stream:
             rows = list(csv.DictReader(stream))
@@ -45,7 +46,9 @@ class RecorderTests(unittest.TestCase):
                 self.assertEqual(image.size, (40, 30))
                 np.testing.assert_array_equal(np.asarray(image).transpose(2, 0, 1), INPUT)
             self.assertEqual(int(row['camera_timestamp_ns']), 100 + i)
-            self.assertEqual(float(row['vel']), i)
+            self.assertEqual(int(row['action_id']), i)
+            self.assertNotIn('vel', row)
+            self.assertNotIn('left', row)
             self.assertEqual(int(row['action_timestamp_ns']), 200)
         info = json.loads((logger.run_dir / 'metadata.json').read_text())
         self.assertEqual(info['written'], 3)
@@ -123,6 +126,26 @@ def node_methods():
 
 
 class ControlTests(unittest.TestCase):
+    def test_raw_discrete_id_captured_before_existing_mapping(self):
+        method = node_methods()['infer_action_discrete']
+        namespace = dict(np=np, torch=types.SimpleNamespace(no_grad=nullcontext))
+        exec(compile(ast.Module(body=[method], type_ignores=[]), '<test>', 'exec'), namespace)
+        for action_id, wheels in ((0, (0.4, 0.04)), (1, (0.04, 0.4)), (2, (0.3, 0.3))):
+            output = types.SimpleNamespace()
+            output.cpu = lambda: output
+            output.data = output
+            output.numpy = lambda: np.array([action_id])
+            node = types.SimpleNamespace(
+                dataset_logger=object(), device='cpu',
+                model=lambda *args, **kwargs: (output, None, None, None, None))
+            states = types.SimpleNamespace(to=lambda device: object())
+            control = namespace['infer_action_discrete'](node, states)
+            self.assertEqual(node._dataset_action_id, action_id)
+            right, left = wheels
+            expected = np.clip([(right+left)*27*0.0318/2,
+                                (right-left)*27*0.0318/0.102], -1, 1)
+            np.testing.assert_allclose(control, expected)
+
     def test_publication_values_and_callback_pairing(self):
         methods = node_methods()
         class Message:
@@ -174,6 +197,12 @@ class ControlTests(unittest.TestCase):
         self.assertEqual(len(records), 1)
         np.testing.assert_array_equal(records[0][0], INPUT)
         self.assertEqual(records[0][1:], (1000000023, result))
+        fake.params = {'discrete': 'T'}
+        fake._dataset_action_id = 2
+        fake.infer_action_discrete = lambda image: [0.2, -0.1]
+        dict_ns['_img_callback'](fake, data)
+        self.assertEqual(records[-1][2], PUBLICATION)
+        records.pop()
         fake.dataset_logger = None
         dict_ns['_img_callback'](fake, data)
         self.assertEqual(len(records), 1)
