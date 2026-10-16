@@ -19,7 +19,7 @@ module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 DatasetLogger = module.DatasetLogger
 JPEG = b'\xff\xd8\xfforiginal camera bytes'
-INPUT = (np.arange(3 * 30 * 40, dtype=np.float32) % 256).reshape(3, 30, 40)
+INPUT = (np.arange(3 * 48 * 64) % 256).astype(np.uint8).reshape(48, 64, 3)
 PUBLICATION = dict(action_id=2, action_timestamp_ns=200)
 
 
@@ -43,8 +43,8 @@ class RecorderTests(unittest.TestCase):
         self.assertEqual(len(rows), 3)
         for i, row in enumerate(rows):
             with Image.open(logger.run_dir / row['image']) as image:
-                self.assertEqual(image.size, (40, 30))
-                np.testing.assert_array_equal(np.asarray(image).transpose(2, 0, 1), INPUT)
+                self.assertEqual(image.size, (64, 48))
+                np.testing.assert_array_equal(np.asarray(image)[:, :, ::-1], INPUT)
             self.assertEqual(int(row['camera_timestamp_ns']), 100 + i)
             self.assertEqual(int(row['action_id']), i)
             self.assertNotIn('vel', row)
@@ -108,12 +108,16 @@ class RecorderTests(unittest.TestCase):
                 self.assertTrue(logger.close())
         self.assertEqual(threads, ['dataset-writer'])
         with Image.open(logger.run_dir / 'images/frame_000000000.png') as image:
-            np.testing.assert_array_equal(np.asarray(image).transpose(2, 0, 1), INPUT)
+            np.testing.assert_array_equal(np.asarray(image)[:, :, ::-1], INPUT)
 
     def test_invalid_shape(self):
         logger = self.logger()
-        self.assertFalse(logger.submit(np.zeros((3, 480, 640)), 1, PUBLICATION))
-        self.assertEqual(logger.snapshot()['dropped_invalid'], 1)
+        self.assertFalse(logger.submit(np.zeros((48, 64), dtype=np.uint8), 1, PUBLICATION))
+        self.assertFalse(logger.submit(INPUT.astype(np.float32), 1, PUBLICATION))
+        limited = self.logger(max_image_bytes=10)
+        self.assertFalse(limited.submit(INPUT, 1, PUBLICATION))
+        self.assertEqual(limited.snapshot()['dropped_invalid'], 1)
+        self.assertEqual(logger.snapshot()['dropped_invalid'], 2)
         with self.assertRaises(ValueError):
             self.logger(queue_size=0)
 
@@ -126,6 +130,24 @@ def node_methods():
 
 
 class ControlTests(unittest.TestCase):
+    def test_pre_resize_capture_uses_same_decode_and_preprocessing(self):
+        method = node_methods()['preprocess_img']
+        decoded, tensor, calls = INPUT, object(), []
+        def decode(frame, flags):
+            calls.append(frame)
+            return decoded
+        namespace = dict(cv2=types.SimpleNamespace(imdecode=decode, IMREAD_COLOR=1))
+        exec(compile(ast.Module(body=[method], type_ignores=[]), '<test>', 'exec'), namespace)
+        def trans_state(frame):
+            self.assertIs(frame, decoded)
+            return tensor
+        node = types.SimpleNamespace(trans_state=trans_state)
+        state, original = namespace['preprocess_img'](node, JPEG, return_original=True)
+        self.assertIs(state, tensor)
+        self.assertIs(original, decoded)
+        self.assertEqual(calls, [JPEG])
+        self.assertIs(namespace['preprocess_img'](node, JPEG), tensor)
+
     def test_raw_discrete_id_captured_before_existing_mapping(self):
         method = node_methods()['infer_action_discrete']
         namespace = dict(np=np, torch=types.SimpleNamespace(no_grad=nullcontext))
@@ -183,11 +205,8 @@ class ControlTests(unittest.TestCase):
         records = []
         fake.params = {'discrete': 'F'}
         fake.get_logger = lambda: types.SimpleNamespace(info=lambda _: None)
-        tensor = types.SimpleNamespace()
-        tensor.detach = lambda: tensor
-        tensor.cpu = lambda: tensor
-        tensor.numpy = lambda: INPUT[None]
-        fake.preprocess_img = lambda image: tensor
+        tensor = object()
+        fake.preprocess_img = lambda image, return_original=False: (tensor, INPUT) if return_original else tensor
         fake.infer_action_continuous = lambda image: [0.2, -0.1]
         fake.publish_control_msg = lambda action: result
         fake.dataset_logger = types.SimpleNamespace(submit=lambda *args: records.append(args) or True)

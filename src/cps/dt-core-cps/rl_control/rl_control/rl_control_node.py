@@ -95,12 +95,13 @@ class RLControl(Node):
         self.declare_parameter('dataset_enabled', False)
         self.declare_parameter('dataset_directory', '~/duckietown_dataset')
         self.declare_parameter('dataset_queue_size', 32)
+        self.declare_parameter('dataset_max_image_bytes', 4194304)
         if self.get_parameter('dataset_enabled').value:
             try:
                 self.dataset_logger = DatasetLogger(
                     self.get_parameter('dataset_directory').value,
                     queue_size=self.get_parameter('dataset_queue_size').value,
-                    state_size=STATE_SIZE,
+                    max_image_bytes=self.get_parameter('dataset_max_image_bytes').value,
                     action_mode='continuous' if self.params['discrete'] == 'F' else 'discrete',
                     metadata={'parameters': self.params, 'state_size': list(STATE_SIZE),
                               'clock_type': str(self.get_clock().clock_type)})
@@ -138,7 +139,10 @@ class RLControl(Node):
             return
 
         # Preprocess
-        preprocessed_img = self.preprocess_img(frame)
+        if self.dataset_logger is not None:
+            preprocessed_img, original_img = self.preprocess_img(frame, return_original=True)
+        else:
+            preprocessed_img = self.preprocess_img(frame)
         self.get_logger().info(f'point 3: after preprocess')
 
         # Infer Action
@@ -157,7 +161,7 @@ class RLControl(Node):
                                        action_timestamp_ns=publication['action_timestamp_ns'])
                 camera_ns = data.header.stamp.sec * 1000000000 + data.header.stamp.nanosec
                 accepted = self.dataset_logger.submit(
-                    preprocessed_img.detach().cpu().numpy()[0], camera_ns, publication)
+                    original_img, camera_ns, publication)
                 if not accepted and not self._dataset_warned:
                     self.get_logger().warning(
                         'Dataset dropped a record; inspect metadata.json counters at shutdown.')
@@ -172,10 +176,13 @@ class RLControl(Node):
     def trans_state(self, obs):
         return 255 * resize_to_tensor(obs).type(torch.float32).unsqueeze(0)
     
-    def preprocess_img(self, frame):
+    def preprocess_img(self, frame, return_original=False):
         # transfer and input
         frame = cv2.imdecode(frame, cv2.IMREAD_COLOR)
         states = self.trans_state(frame)
+        # Keep the same decoded image used by trans_state, before its Resize.
+        if return_original:
+            return states, frame
         return states
 
     def infer_action_continuous(self, states):
