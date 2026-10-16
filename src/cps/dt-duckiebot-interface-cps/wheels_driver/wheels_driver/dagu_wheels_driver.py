@@ -19,9 +19,9 @@ class DaguWheelsDriver:
     # RIGHT_MOTOR_MAX_PWM = 255   #: Maximum speed for right motor
     SPEED_TOLERANCE = 1.e-2     #: Speed tolerance level
     LEFT_MOTOR_MIN_PWM = 120     #: Minimum speed for left motor
-    LEFT_MOTOR_MAX_PWM = 200    #: Maximum speed for left motor
+    LEFT_MOTOR_MAX_PWM = 255    #: Maximum speed for left motor
     RIGHT_MOTOR_MIN_PWM = 120    #: Minimum speed for right motor
-    RIGHT_MOTOR_MAX_PWM = 200   #: Maximum speed for right motor
+    RIGHT_MOTOR_MAX_PWM = 255   #: Maximum speed for right motor
 
     def __init__(self) -> None:
         rcfg = get_robot_configuration()
