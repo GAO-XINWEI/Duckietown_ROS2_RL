@@ -12,6 +12,13 @@
     <arg name="quantize" default="F"/>
     <arg name="discrete" default="F"/>
 
+    <!-- Dataset recording is opt-in. PNG encoding runs only on the writer thread. -->
+    <arg name="dataset_enabled" default="false"/>
+    <arg name="dataset_directory" default="/home/duckie/duckietown_dataset"/>
+    <arg name="dataset_queue_size" default="32"/>
+    <arg name="dataset_image_format" default="original"/>
+    <arg name="dataset_max_image_bytes" default="4194304"/>
+
     <!-- rl_control Package -->
     <node pkg="rl_control" exec="rl_control_node" name="rl_control_node" 
         namespace="$(var veh)">
@@ -23,5 +30,10 @@
         <param name="device" value="$(var device)"/>
         <param name="quantize" value="$(var quantize)"/>
         <param name="discrete" value="$(var discrete)"/>
+        <param name="dataset_enabled" value="$(var dataset_enabled)"/>
+        <param name="dataset_directory" value="$(var dataset_directory)"/>
+        <param name="dataset_queue_size" value="$(var dataset_queue_size)"/>
+        <param name="dataset_image_format" value="$(var dataset_image_format)"/>
+        <param name="dataset_max_image_bytes" value="$(var dataset_max_image_bytes)"/>
     </node>
 </launch>

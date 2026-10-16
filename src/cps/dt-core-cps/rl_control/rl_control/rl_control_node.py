@@ -20,6 +20,7 @@ from sensor_msgs.msg import CompressedImage
 
 from threading import Event, Lock, Thread
 from rl_control.Parameters import *
+from rl_control.dataset_logger import DatasetLogger
 from dt_interfaces_cps.msg import WheelsCmdStamped
 from dt_rl_interfaces_cps.msg import ActionFloat32Array2, ActionFloat32
 
@@ -88,6 +89,29 @@ class RLControl(Node):
                 _, _, _, _, _ = self.model(self.input, lstm_state=None, old_action=None)
             self.get_logger().info(f'Run {i} times input done!')
 
+        # Logging is opt-in and does not change inference or wheel conversion.
+        self.dataset_logger = None
+        self._dataset_warned = False
+        self.declare_parameter('dataset_enabled', False)
+        self.declare_parameter('dataset_directory', '~/duckietown_dataset')
+        self.declare_parameter('dataset_queue_size', 32)
+        self.declare_parameter('dataset_image_format', 'original')
+        self.declare_parameter('dataset_max_image_bytes', 4194304)
+        if self.get_parameter('dataset_enabled').value:
+            try:
+                self.dataset_logger = DatasetLogger(
+                    self.get_parameter('dataset_directory').value,
+                    queue_size=self.get_parameter('dataset_queue_size').value,
+                    image_format=self.get_parameter('dataset_image_format').value,
+                    max_image_bytes=self.get_parameter('dataset_max_image_bytes').value,
+                    metadata={'parameters': self.params, 'state_size': list(STATE_SIZE),
+                              'wheel_constants': dict(GAIN=GAIN, TRIM=TRIM, RADIUS=RADIUS,
+                                                     K=K, LIMIT=LIMIT, WHEEL_DIST=WHEEL_DIST),
+                              'clock_type': str(self.get_clock().clock_type)})
+                self.get_logger().info('Dataset directory: {}'.format(self.dataset_logger.run_dir))
+            except Exception as exc:
+                self.get_logger().error('Dataset disabled: {}'.format(exc))
+
         # Subscribers
         self.sub_img = self.create_subscription(
             CompressedImage,
@@ -110,10 +134,12 @@ class RLControl(Node):
     def _img_callback(self, data):
         self.get_logger().info(f'point 1: entry')
         try:
-            frame = np.fromstring(bytes(data.data), np.uint8)
+            image_bytes = bytes(data.data)
+            frame = np.fromstring(image_bytes, np.uint8)
             self.get_logger().info(f'point 2: new frame')
         except AttributeError:
             self.get_logger().info('Camera node is not yet ready...')
+            return
 
         # Preprocess
         preprocessed_img = self.preprocess_img(frame)
@@ -127,7 +153,19 @@ class RLControl(Node):
         self.get_logger().info(f'point 4: action infered')
                 
         # Publish Message
-        self.publish_control_msg(action)
+        publication = self.publish_control_msg(action)
+        if self.dataset_logger is not None:
+            try:
+                camera_ns = data.header.stamp.sec * 1000000000 + data.header.stamp.nanosec
+                accepted = self.dataset_logger.submit(image_bytes, camera_ns, publication)
+                if not accepted and not self._dataset_warned:
+                    self.get_logger().warning(
+                        'Dataset dropped a record; inspect metadata.json counters at shutdown.')
+                    self._dataset_warned = True
+            except Exception as exc:
+                if not self._dataset_warned:
+                    self.get_logger().error('Dataset submission failed: {}'.format(exc))
+                    self._dataset_warned = True
         self.get_logger().info('point 5: Action published')
 
     
@@ -190,6 +228,7 @@ class RLControl(Node):
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.data = [vel_left, vel_right]
         self.pub_action_net.publish(msg)
+        action_stamp = msg.header.stamp
 
         # transfer to wheel cmd
         def action_to_wheel(action):
@@ -222,6 +261,18 @@ class RLControl(Node):
         msg.vel_left = float(vel_left)
         msg.vel_right = float(vel_right)
         self.pub_action_motor.publish(msg)
+        return dict(vel=float(vel), angle=float(angle), left=msg.vel_left, right=msg.vel_right,
+                    action_timestamp_ns=action_stamp.sec * 1000000000 + action_stamp.nanosec,
+                    wheel_timestamp_ns=msg.header.stamp.sec * 1000000000 + msg.header.stamp.nanosec)
+
+    def destroy_node(self):
+        # Tear down ROS resources before waiting for dataset I/O.
+        result = super().destroy_node()
+        if self.dataset_logger is not None:
+            complete = self.dataset_logger.close(timeout=5.0)
+            print('Dataset {}: {}'.format('closed' if complete else 'drain timed out',
+                                         self.dataset_logger.snapshot()))
+        return result
         
 
 def main(args=None):
