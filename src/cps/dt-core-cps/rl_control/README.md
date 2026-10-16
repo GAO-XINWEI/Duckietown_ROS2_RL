@@ -1,4 +1,34 @@
-# Save pre-Resize camera PNG + ACNet action + timestamps
+# Discrete fixed PWM presets + pre-Resize PNG dataset
+
+This upload variant deliberately changes discrete wheel control:
+
+| Raw action_id | Left / right target PWM | Both wheels |
+| --- | --- | --- |
+| 0 (left) | 230 / 255 | Forward |
+| 1 (right) | 255 / 230 | Forward |
+| 2 (straight) | 240 / 240 | Forward |
+
+`discrete_pwm.py` defines presets and compensates for floor quantization. The
+controller captures the raw ID regardless of dataset_enabled, keeps the existing
+network/action publication and overrides the discrete wheel commands with these
+presets. The `rl/action_cmd` vel/angle values still describe the original policy
+conversion, not an inverse model of the overridden wheel commands. Dataset records
+raw action_id. Inference/preprocessing are unchanged. Driver minimum PWM remains
+120 and maximum changes to 255 on both sides. This driver change affects ALL
+publishers, including continuous control; zero commands still map to zero PWM.
+Stop other wheel-command publishers and retain emergency-stop priority.
+
+This variant requires the matching controller, discrete_pwm.py and motor driver
+files together. Updating just the controller against a MAX=200 driver produces
+the wrong PWM values. It is packaged separately from the logger-only PR.
+
+Eleven offline tests pass (eight dataset tests plus three PWM tests), using the
+actual driver mapping and publication methods without importing hardware drivers.
+No ROS2 Foxy/Jetson hardware validation has been performed. 240/255 are high
+outputs; test with wheels lifted before ground operation. Equal PWM does not
+ensure equal wheel speed, and these turn presets do not guarantee lane following.
+
+## Dataset behavior
 
 Recording is disabled by default. Each saved record contains only the PNG of the
 decoded camera image before Resize, the corresponding raw discrete ACNet
@@ -90,7 +120,8 @@ The action timestamp describes publication, not physical motor execution or DDS
 receipt. Camera/node clocks may differ; zero/repeated camera stamps are preserved.
 Metadata stores settings, saved image stage/channel convention and recording counters.
 No motor constants or wheel data are stored. `Parameters.py` was inspected and
-remains unchanged, as do preprocessing, inference, wheel conversion and limits.
+remains unchanged, as do preprocessing and network inference. Discrete wheel
+commands and driver maximum are intentionally changed as described above.
 
 ## Queue, failures and stop
 
@@ -135,7 +166,7 @@ Eight hardware-free tests check exact decoded-camera PNG round-trip including
 BGR/RGB conversion and original dimensions, single-decode pre-Resize capture, timestamps/action pairing, snapshot ownership, background
 encoding, unique runs, overflow, bounded/repeated stop, invalid input shape/dtype/size,
 disk/CSV failure, all three raw discrete IDs before conversion, unchanged
-converted controls and no record after failed publication. Fake publishers avoid
+intermediate policy conversion values and no record after failed publication. Fake publishers avoid
 importing ROS, Torch or GPIO. Static comparison verifies trans_state, both
 inference methods and wheel conversion are unchanged from the previous version.
 Preprocessing adds an optional return of the same decoded frame, with no extra

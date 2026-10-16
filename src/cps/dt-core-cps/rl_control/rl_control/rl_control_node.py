@@ -21,6 +21,7 @@ from sensor_msgs.msg import CompressedImage
 from threading import Event, Lock, Thread
 from rl_control.Parameters import *
 from rl_control.dataset_logger import DatasetLogger
+from rl_control.discrete_pwm import discrete_wheel_commands, TARGET_PWM
 from dt_interfaces_cps.msg import WheelsCmdStamped
 from dt_rl_interfaces_cps.msg import ActionFloat32Array2, ActionFloat32
 
@@ -89,6 +90,9 @@ class RLControl(Node):
                 _, _, _, _, _ = self.model(self.input, lstm_state=None, old_action=None)
             self.get_logger().info(f'Run {i} times input done!')
 
+        if self.params['discrete'] != 'F':
+            self.get_logger().info('Discrete forward PWM presets (left, right): {}'.format(TARGET_PWM))
+
         # Logging is opt-in and does not change inference or wheel conversion.
         self.dataset_logger = None
         self._dataset_warned = False
@@ -104,6 +108,7 @@ class RLControl(Node):
                     max_image_bytes=self.get_parameter('dataset_max_image_bytes').value,
                     action_mode='continuous' if self.params['discrete'] == 'F' else 'discrete',
                     metadata={'parameters': self.params, 'state_size': list(STATE_SIZE),
+                              'discrete_target_pwm': TARGET_PWM if self.params['discrete'] != 'F' else None,
                               'clock_type': str(self.get_clock().clock_type)})
                 self.get_logger().info('Dataset directory: {}'.format(self.dataset_logger.run_dir))
             except Exception as exc:
@@ -157,7 +162,7 @@ class RLControl(Node):
         if self.dataset_logger is not None:
             try:
                 if self.params['discrete'] != 'F':
-                    publication = dict(action_id=self._dataset_action_id,
+                    publication = dict(action_id=self._discrete_action_id,
                                        action_timestamp_ns=publication['action_timestamp_ns'])
                 camera_ns = data.header.stamp.sec * 1000000000 + data.header.stamp.nanosec
                 accepted = self.dataset_logger.submit(
@@ -198,9 +203,8 @@ class RLControl(Node):
         with torch.no_grad():
             actions, _, _, _, _ = self.model(states.to(self.device), lstm_state=None, old_action=None)
         action = actions.cpu().data.numpy().flatten()
-        # Capture the exact network output before the existing control mapping.
-        if self.dataset_logger is not None:
-            self._dataset_action_id = int(action[0])
+        # Driving presets need the raw ID even when dataset recording is off.
+        self._discrete_action_id = int(action[0])
         def return_vel_steer(u_r,u_l):
             GAIN = 1.0
             TRIM = 0.0
@@ -266,6 +270,9 @@ class RLControl(Node):
             return u_l_limited, u_r_limited
 
         vel_left, vel_right = action_to_wheel(action)
+        if self.params['discrete'] != 'F':
+            # Both wheels forward. Requires driver MIN=120, MAX=255 on both sides.
+            vel_left, vel_right = discrete_wheel_commands(self._discrete_action_id)
         msg = WheelsCmdStamped()
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.vel_left = float(vel_left)

@@ -158,11 +158,11 @@ class ControlTests(unittest.TestCase):
             output.data = output
             output.numpy = lambda: np.array([action_id])
             node = types.SimpleNamespace(
-                dataset_logger=object(), device='cpu',
+                dataset_logger=None, device='cpu',
                 model=lambda *args, **kwargs: (output, None, None, None, None))
             states = types.SimpleNamespace(to=lambda device: object())
             control = namespace['infer_action_discrete'](node, states)
-            self.assertEqual(node._dataset_action_id, action_id)
+            self.assertEqual(node._discrete_action_id, action_id)
             right, left = wheels
             expected = np.clip([(right+left)*27*0.0318/2,
                                 (right-left)*27*0.0318/0.102], -1, 1)
@@ -187,7 +187,7 @@ class ControlTests(unittest.TestCase):
         namespace = dict(constants, ActionFloat32=Message, ActionFloat32Array2=Message,
                          WheelsCmdStamped=Message)
         exec(compile(ast.Module(body=[methods['publish_control_msg']], type_ignores=[]), '<test>', 'exec'), namespace)
-        fake = types.SimpleNamespace(get_clock=lambda: Clock(), pub_action_net=Publisher(),
+        fake = types.SimpleNamespace(params={'discrete': 'F'}, get_clock=lambda: Clock(), pub_action_net=Publisher(),
                                      pub_action_motor=Publisher())
         result = namespace['publish_control_msg'](fake, [0.2, -0.1])
         self.assertEqual(len(published), 2)
@@ -217,7 +217,7 @@ class ControlTests(unittest.TestCase):
         np.testing.assert_array_equal(records[0][0], INPUT)
         self.assertEqual(records[0][1:], (1000000023, result))
         fake.params = {'discrete': 'T'}
-        fake._dataset_action_id = 2
+        fake._discrete_action_id = 2
         fake.infer_action_discrete = lambda image: [0.2, -0.1]
         dict_ns['_img_callback'](fake, data)
         self.assertEqual(records[-1][2], PUBLICATION)
