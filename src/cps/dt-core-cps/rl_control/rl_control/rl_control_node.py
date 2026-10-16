@@ -20,6 +20,7 @@ from sensor_msgs.msg import CompressedImage
 
 from threading import Event, Lock, Thread
 from rl_control.Parameters import *
+from rl_control.dataset_logger import DatasetLogger
 from dt_interfaces_cps.msg import WheelsCmdStamped
 from dt_rl_interfaces_cps.msg import ActionFloat32Array2, ActionFloat32
 
@@ -88,6 +89,26 @@ class RLControl(Node):
                 _, _, _, _, _ = self.model(self.input, lstm_state=None, old_action=None)
             self.get_logger().info(f'Run {i} times input done!')
 
+        # Logging is opt-in and does not change inference or wheel conversion.
+        self.dataset_logger = None
+        self._dataset_warned = False
+        self.declare_parameter('dataset_enabled', False)
+        self.declare_parameter('dataset_directory', '~/duckietown_dataset')
+        self.declare_parameter('dataset_queue_size', 32)
+        self.declare_parameter('dataset_max_image_bytes', 4194304)
+        if self.get_parameter('dataset_enabled').value:
+            try:
+                self.dataset_logger = DatasetLogger(
+                    self.get_parameter('dataset_directory').value,
+                    queue_size=self.get_parameter('dataset_queue_size').value,
+                    max_image_bytes=self.get_parameter('dataset_max_image_bytes').value,
+                    action_mode='continuous' if self.params['discrete'] == 'F' else 'discrete',
+                    metadata={'parameters': self.params, 'state_size': list(STATE_SIZE),
+                              'clock_type': str(self.get_clock().clock_type)})
+                self.get_logger().info('Dataset directory: {}'.format(self.dataset_logger.run_dir))
+            except Exception as exc:
+                self.get_logger().error('Dataset disabled: {}'.format(exc))
+
         # Subscribers
         self.sub_img = self.create_subscription(
             CompressedImage,
@@ -110,13 +131,18 @@ class RLControl(Node):
     def _img_callback(self, data):
         self.get_logger().info(f'point 1: entry')
         try:
-            frame = np.fromstring(bytes(data.data), np.uint8)
+            image_bytes = bytes(data.data)
+            frame = np.fromstring(image_bytes, np.uint8)
             self.get_logger().info(f'point 2: new frame')
         except AttributeError:
             self.get_logger().info('Camera node is not yet ready...')
+            return
 
         # Preprocess
-        preprocessed_img = self.preprocess_img(frame)
+        if self.dataset_logger is not None:
+            preprocessed_img, original_img = self.preprocess_img(frame, return_original=True)
+        else:
+            preprocessed_img = self.preprocess_img(frame)
         self.get_logger().info(f'point 3: after preprocess')
 
         # Infer Action
@@ -127,17 +153,36 @@ class RLControl(Node):
         self.get_logger().info(f'point 4: action infered')
                 
         # Publish Message
-        self.publish_control_msg(action)
+        publication = self.publish_control_msg(action)
+        if self.dataset_logger is not None:
+            try:
+                if self.params['discrete'] != 'F':
+                    publication = dict(action_id=self._dataset_action_id,
+                                       action_timestamp_ns=publication['action_timestamp_ns'])
+                camera_ns = data.header.stamp.sec * 1000000000 + data.header.stamp.nanosec
+                accepted = self.dataset_logger.submit(
+                    original_img, camera_ns, publication)
+                if not accepted and not self._dataset_warned:
+                    self.get_logger().warning(
+                        'Dataset dropped a record; inspect metadata.json counters at shutdown.')
+                    self._dataset_warned = True
+            except Exception as exc:
+                if not self._dataset_warned:
+                    self.get_logger().error('Dataset submission failed: {}'.format(exc))
+                    self._dataset_warned = True
         self.get_logger().info('point 5: Action published')
 
     
     def trans_state(self, obs):
         return 255 * resize_to_tensor(obs).type(torch.float32).unsqueeze(0)
     
-    def preprocess_img(self, frame):
+    def preprocess_img(self, frame, return_original=False):
         # transfer and input
         frame = cv2.imdecode(frame, cv2.IMREAD_COLOR)
         states = self.trans_state(frame)
+        # Keep the same decoded image used by trans_state, before its Resize.
+        if return_original:
+            return states, frame
         return states
 
     def infer_action_continuous(self, states):
@@ -153,6 +198,9 @@ class RLControl(Node):
         with torch.no_grad():
             actions, _, _, _, _ = self.model(states.to(self.device), lstm_state=None, old_action=None)
         action = actions.cpu().data.numpy().flatten()
+        # Capture the exact network output before the existing control mapping.
+        if self.dataset_logger is not None:
+            self._dataset_action_id = int(action[0])
         def return_vel_steer(u_r,u_l):
             GAIN = 1.0
             TRIM = 0.0
@@ -190,6 +238,7 @@ class RLControl(Node):
         msg.header.stamp = self.get_clock().now().to_msg()
         msg.data = [vel_left, vel_right]
         self.pub_action_net.publish(msg)
+        action_stamp = msg.header.stamp
 
         # transfer to wheel cmd
         def action_to_wheel(action):
@@ -222,6 +271,17 @@ class RLControl(Node):
         msg.vel_left = float(vel_left)
         msg.vel_right = float(vel_right)
         self.pub_action_motor.publish(msg)
+        return dict(vel=float(vel), angle=float(angle),
+                    action_timestamp_ns=action_stamp.sec * 1000000000 + action_stamp.nanosec)
+
+    def destroy_node(self):
+        # Tear down ROS resources before waiting for dataset I/O.
+        result = super().destroy_node()
+        if self.dataset_logger is not None:
+            complete = self.dataset_logger.close(timeout=5.0)
+            print('Dataset {}: {}'.format('closed' if complete else 'drain timed out',
+                                         self.dataset_logger.snapshot()))
+        return result
         
 
 def main(args=None):
